@@ -58,6 +58,15 @@ for name in used:
     if name == "VE_H264_VLD_ADDR_VAL":
         lines.append(("raw", name, "(((a) & 0x0ffffff0) | ((a) >> 28))"))
         continue
+    if name == "VE_H264_TRIGGER_TYPE_BIN_LENS":
+        lines.append(("raw", name, "VE_FIELD((a) - 1, 18, 16)"))
+        continue
+    if name == "VE_VP8_FSIZE_WIDTH":
+        lines.append(("raw", name, "VE_FIELD(((a) + 15) / 16, 15, 8)"))
+        continue
+    if name == "VE_VP8_FSIZE_HEIGHT":
+        lines.append(("raw", name, "VE_FIELD(((a) + 15) / 16, 7, 0)"))
+        continue
     sys.exit("unhandled macro %s: %s" % (name, body))
 
 out = ["/* SPDX-License-Identifier: GPL-2.0-or-later */",

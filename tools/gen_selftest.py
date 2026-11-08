@@ -21,7 +21,21 @@ CLIPS = [
                          "-x265-params", "bframes=2:ref=3:keyint=60:info=0:log-level=error", "-f", "hevc"]),
     ("hevc10", "HEVC", 10, ["-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-profile:v", "main10",
                             "-x265-params", "bframes=2:ref=3:keyint=60:info=0:log-level=error", "-f", "hevc"]),
+    ("vp8", "VP8", 8, ["-c:v", "libvpx", "-pix_fmt", "yuv420p", "-deadline", "good", "-cpu-used", "1",
+                       "-auto-alt-ref", "0", "-g", "60", "-b:v", "300k", "-f", "ivf"]),
 ]
+
+
+def ivf_frames(raw):
+    """the frames of an IVF file, joined, and (start, end) of each"""
+    pos = int.from_bytes(raw[6:8], "little")
+    data, aus = bytearray(), []
+    while pos + 12 <= len(raw):
+        n = int.from_bytes(raw[pos:pos + 4], "little")
+        aus.append((len(data), len(data) + n))
+        data += raw[pos + 12:pos + 12 + n]
+        pos += 12 + n
+    return bytes(data), aus
 
 
 def run(args):
@@ -134,7 +148,10 @@ def main():
             path = os.path.join(tmp, name + ".bin")
             run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", SRC, "-frames:v", str(N)] + enc + [path])
             data = open(path, "rb").read()
-            aus = access_units(data, codec)
+            if codec == "VP8":
+                data, aus = ivf_frames(data)
+            else:
+                aus = access_units(data, codec)
             frames = decode(path, depth)
             means = b"".join(block_means(f) for f in frames)
             adlers = [nv12_adler(f) for f in frames]

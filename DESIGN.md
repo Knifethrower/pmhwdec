@@ -592,3 +592,9 @@ on init failure. The Jellyfin port switches from the cedar-only decoders to thes
 
 Sources: [CNX: RK3588/RK3576 decoders in Linux 7.0](https://www.cnx-software.com/2026/02/27/rockchip-rk3588-rk3576-h-264-and-h-265-video-decoders-mainline-linux/),
 [LKML: VDPU346 v3](https://lkml.org/lkml/2026/1/18/415), [Pine64 mainline decoding table](https://pine64.org/documentation/General/Mainline_Hardware_Decoding/).
+
+## VP8 (2026-11-08)
+One parser (`src/vp8.c`) feeds cedar and v4l2req; MPP parses VP8 itself (`-DENABLE_VP8D=ON`, needs the VDPU2 HAL already in the build).
+- The Cedrus table at 0x1008 / 0x1010 must hold the fixed key-frame mode probabilities on key frames (145,156,163,128 / 142,114,183), not the inter defaults. `parse_header` writes them into `Vp8Hdr.e`; hantro ignores them on key frames, so both paths share it. With the inter defaults the engine loses sync at the first 4x4 block with a non-DC neighbor.
+- The A133P does have VP8: all clips bit-exact on the TrimUI Smart Pro, although its product brief does not list the codec.
+- Bit-exact 2026-11-08 (10 clips, profiles 0-3, alt-ref, token partitions, segments, odd size, 720p, 1080p): RG Cube XX, TrimUI Smart Pro, RG351P (hantro), RG552 (MPP); R36S 2GB (MPP) up to 720p. 1080p decode without copy-out: H700 113 fps, A133P 106, RK3326 hantro 71, RK3399 85; libvpx NEON on the H700 is about 32 fps.

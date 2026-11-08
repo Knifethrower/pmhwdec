@@ -132,12 +132,17 @@
 #define VE_DEC_H265_TRIGGER_DEC_SLICE                                          0x8
 #define VE_DEC_H265_TRIGGER_FLUSH_BITS                                         0x3
 #define VE_DEC_H265_TRIGGER_INIT_SWDEC                                         0x7
+#define VE_H264_BASIC_BITS                                                     0x2dc
 #define VE_H264_CTRL                                                           0x220
 #define VE_H264_CTRL_DECODE_ERR_INT                                            0x2
 #define VE_H264_CTRL_SLICE_DECODE_INT                                          0x1
 #define VE_H264_CTRL_VLD_DATA_REQ_INT                                          0x4
+#define VE_H264_CTRL_VP8                                                       0x20000000
+#define VE_H264_CUR_MB_NUM                                                     0x22c
+#define VE_H264_ERROR_CASE                                                     0x2b8
 #define VE_H264_EXTRA_BUFFER1                                                  0x250
 #define VE_H264_EXTRA_BUFFER2                                                  0x254
+#define VE_H264_MB_ADDR                                                        0x260
 #define VE_H264_OUTPUT_FRAME_IDX                                               0x24c
 #define VE_H264_PPS                                                            0x204
 #define VE_H264_PPS_CONSTRAINED_INTRA_PRED                                     0x2
@@ -163,10 +168,16 @@
 #define VE_H264_STATUS_SLICE_DECODE_INT                                        0x1
 #define VE_H264_STATUS_VLD_BUSY                                                0x100
 #define VE_H264_STATUS_VLD_DATA_REQ_INT                                        0x4
+#define VE_H264_STATUS_VP8_UPPROB_BUSY                                         0x20000
 #define VE_H264_TRIGGER_TYPE                                                   0x224
 #define VE_H264_TRIGGER_TYPE_AVC_SLICE_DECODE                                  0x8
+#define VE_H264_TRIGGER_TYPE_BIN_LENS(a)                                       VE_FIELD((a) - 1, 18, 16)
 #define VE_H264_TRIGGER_TYPE_FLUSH_BITS                                        0x3
 #define VE_H264_TRIGGER_TYPE_INIT_SWDEC                                        0x7
+#define VE_H264_TRIGGER_TYPE_PROBABILITY(v)                                    VE_FIELD(v, 31, 24)
+#define VE_H264_TRIGGER_TYPE_VP8_GET_BITS                                      0xf
+#define VE_H264_TRIGGER_TYPE_VP8_SLICE_DECODE                                  0xa
+#define VE_H264_TRIGGER_TYPE_VP8_UPDATE_COEF                                   0xe
 #define VE_H264_VLD_ADDR                                                       0x230
 #define VE_H264_VLD_ADDR_FIRST                                                 0x40000000
 #define VE_H264_VLD_ADDR_LAST                                                  0x20000000
@@ -190,5 +201,63 @@
 #define VE_PRIMARY_FB_LINE_STRIDE_LUMA(v)                                      VE_FIELD(v, 15, 0)
 #define VE_PRIMARY_OUT_FMT                                                     0xec
 #define VE_PRIMARY_OUT_FMT_NV12                                                0x40
+#define VE_VP8_ALT_CHROMA                                                      0x2ec
+#define VE_VP8_ALT_LUMA                                                        0x2e8
+#define VE_VP8_BWD_CHROMA                                                      0x2d8
+#define VE_VP8_BWD_LUMA                                                        0x2b4
+#define VE_VP8_ENTROPY_PROBS_ADDR                                              0x250
+#define VE_VP8_FIRST_DATA_PART_LEN                                             0x254
+#define VE_VP8_FSIZE                                                           0x258
+#define VE_VP8_FSIZE_HEIGHT(a)                                                 VE_FIELD(((a) + 15) / 16, 7, 0)
+#define VE_VP8_FSIZE_WIDTH(a)                                                  VE_FIELD(((a) + 15) / 16, 15, 8)
+#define VE_VP8_FWD_CHROMA                                                      0x2d4
+#define VE_VP8_FWD_LUMA                                                        0x2b0
+#define VE_VP8_LF_DELTA0(v)                                                    VE_FIELD(v, 6, 0)
+#define VE_VP8_LF_DELTA1(v)                                                    VE_FIELD(v, 14, 8)
+#define VE_VP8_LF_DELTA2(v)                                                    VE_FIELD(v, 22, 16)
+#define VE_VP8_LF_DELTA3(v)                                                    VE_FIELD(v, 30, 24)
+#define VE_VP8_MODE_LF_DELTA                                                   0x2fc
+#define VE_VP8_PART_SIZE_OFFSET                                                0x21c
+#define VE_VP8_PICSIZE                                                         0x25c
+#define VE_VP8_PICSIZE_HEIGHT(v)                                               VE_FIELD(v, 11, 0)
+#define VE_VP8_PICSIZE_WIDTH(v)                                                VE_FIELD(v, 27, 16)
+#define VE_VP8_PPS                                                             0x214
+#define VE_VP8_PPS_ALTREF_SIGN_BIAS                                            0x4000000
+#define VE_VP8_PPS_BILINEAR_MC_FILTER                                          0x4
+#define VE_VP8_PPS_FILTER_TYPE_SIMPLE                                          0x2
+#define VE_VP8_PPS_FULL_PIXEL                                                  0x8
+#define VE_VP8_PPS_GOLDEN_SIGN_BIAS                                            0x2000000
+#define VE_VP8_PPS_LAST_LOOP_FILTER_SIMPLE                                     0x80
+#define VE_VP8_PPS_LAST_PIC_TYPE_P_FRAME                                       0x8000000
+#define VE_VP8_PPS_LAST_SHARPNESS_LEVEL(v)                                     VE_FIELD(v, 30, 28)
+#define VE_VP8_PPS_LOOP_FILTER_LEVEL(v)                                        VE_FIELD(v, 17, 12)
+#define VE_VP8_PPS_LOOP_FILTER_SIMPLE                                          0x800
+#define VE_VP8_PPS_LPF_DISABLE                                                 0x1
+#define VE_VP8_PPS_MB_NO_COEFF_SKIP                                            0x400000
+#define VE_VP8_PPS_MB_SEGMENT_ABS_DELTA                                        0x20
+#define VE_VP8_PPS_MODE_REF_LF_DELTA_ENABLE                                    0x40000
+#define VE_VP8_PPS_MODE_REF_LF_DELTA_UPDATE                                    0x80000
+#define VE_VP8_PPS_PIC_TYPE_P_FRAME                                            0x80000000
+#define VE_VP8_PPS_RELOAD_ENTROPY_PROBS                                        0x1000000
+#define VE_VP8_PPS_SEGMENTATION_ENABLE                                         0x40
+#define VE_VP8_PPS_SHARPNESS_LEVEL(v)                                          VE_FIELD(v, 10, 8)
+#define VE_VP8_PPS_TOKEN_PARTITION(v)                                          VE_FIELD(v, 21, 20)
+#define VE_VP8_PPS_UPDATE_MB_SEGMENTATION_MAP                                  0x10
+#define VE_VP8_QP_INDEX_DELTA                                                  0x218
+#define VE_VP8_QP_INDEX_DELTA_BASE_QINDEX(v)                                   VE_FIELD(v, 6, 0)
+#define VE_VP8_QP_INDEX_DELTA_UVAC(v)                                          VE_FIELD(v, 31, 27)
+#define VE_VP8_QP_INDEX_DELTA_UVDC(v)                                          VE_FIELD(v, 26, 22)
+#define VE_VP8_QP_INDEX_DELTA_Y1DC(v)                                          VE_FIELD(v, 11, 7)
+#define VE_VP8_QP_INDEX_DELTA_Y2AC(v)                                          VE_FIELD(v, 21, 17)
+#define VE_VP8_QP_INDEX_DELTA_Y2DC(v)                                          VE_FIELD(v, 16, 12)
+#define VE_VP8_REC_CHROMA                                                      0x2d0
+#define VE_VP8_REC_LUMA                                                        0x2ac
+#define VE_VP8_REF_LF_DELTA                                                    0x2f8
+#define VE_VP8_SEGMENT0(v)                                                     VE_FIELD(v, 7, 0)
+#define VE_VP8_SEGMENT1(v)                                                     VE_FIELD(v, 15, 8)
+#define VE_VP8_SEGMENT2(v)                                                     VE_FIELD(v, 23, 16)
+#define VE_VP8_SEGMENT3(v)                                                     VE_FIELD(v, 31, 24)
+#define VE_VP8_SEGMENT_FEAT_MB_LV0                                             0x2f0
+#define VE_VP8_SEGMENT_FEAT_MB_LV1                                             0x2f4
 
 #endif

@@ -50,9 +50,9 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 EOF
 B=$SRC/../mpp-build; [ "$ARCH" = aarch64 ] || B=$SRC/../mpp-build-$ARCH
 rm -rf "$B" && mkdir -p "$B"
-# only what libpmhwdec drives (mpp/codecs.cmake options): H.264 + HEVC decode; no other decoder, no encoder
-CODECS="-DENABLE_H264D=ON -DENABLE_H265D=ON"
-for c in AVSD AVS2D H263D MPEG2D MPEG4D VP8D VP9D JPEGD AV1D H264E H265E JPEGE VP8E; do CODECS="$CODECS -DENABLE_$c=OFF"; done
+# only what libpmhwdec drives (mpp/codecs.cmake options): H.264, HEVC and VP8 decode; no other decoder, no encoder
+CODECS="-DENABLE_H264D=ON -DENABLE_H265D=ON -DENABLE_VP8D=ON"
+for c in AVSD AVS2D H263D MPEG2D MPEG4D VP9D JPEGD AV1D H264E H265E JPEGE VP8E; do CODECS="$CODECS -DENABLE_$c=OFF"; done
 # decoder IPs (mpp/soc.cmake MPP_HW_TYPES) = which HAL files are built; each HAL registers only on the SoCs in its
 # .soc_type list. PortMaster's Rockchip chips (DESIGN.md) use:
 #   VDPU2   hal_h264d_vdpu2   RK3326/PX30 H.264 (vpu_service); also listed for RK3399/3328/356x/3588 as 2nd choice

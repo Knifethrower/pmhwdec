@@ -151,7 +151,7 @@ static int cc_query(PmhwCodec codec, PmhwCaps *caps)
 {
     static int done[PMHW_CODEC_COUNT], ok[PMHW_CODEC_COUNT];
     static PmhwCaps cached[PMHW_CODEC_COUNT];
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC) return -1;
+    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC && codec != PMHW_CODEC_VP8) return -1;
     if (!done[codec]) {
         done[codec] = 1;
         CC c = { 0 };

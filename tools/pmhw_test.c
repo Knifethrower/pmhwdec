@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
-/* pmhw-test: decodes an Annex-B H.264 / HEVC file through the public pmhwdec API only.
+/* pmhw-test: decodes an Annex-B H.264 / HEVC file or an IVF VP8 file through the public pmhwdec API only.
  * Prints one line per picture in OUTPUT order: "FRAME <n> 0 <n> <pts> ... adler=<hex>" (FFmpeg framecrc's adler32 of
  * the visible NV12), so `ffmpeg -i f -pix_fmt nv12 -f framecrc` compares line by line (probe/compare_crc.py).
  * Usage: pmhw-test [-c h264|hevc] [-n max_access_units] [-o first_frames.nv12 -d count] file
@@ -64,6 +64,54 @@ static void drain(PmhwDecoder *d)
     }
 }
 
+static void print_result(int errors, int aus, int agains, double send_time, double total)
+{
+    printf("RESULT %s access_units=%d frames=%d send_errors=%d agains=%d per frame: send %.2f ms, get %.3f ms, copy-out %.2f ms, total %.2f ms (%.1f fps)\n",
+           errors ? "ERRORS" : "OK", aus, frames, errors, agains, send_time * 1e3 / (frames ? frames : 1),
+           get_time * 1e3 / (frames ? frames : 1), copy_time * 1e3 / (frames ? frames : 1), total * 1e3 / (frames ? frames : 1),
+           frames / (total > 0 ? total : 1));
+}
+
+/* VP8 in IVF: a 32-byte file header (its length at offset 6), then a 12-byte header before each frame */
+static int run_ivf(const uint8_t *f, long n, int max_au)
+{
+    PmhwDecoder *d = pmhw_open(PMHW_CODEC_VP8, 0, 0);
+    if (!d) { printf("RESULT NOHW no hardware decoder\n"); return 1; }
+    printf("backend %s\n", pmhw_backend_name(d));
+    double send_time = 0, t_start = now();
+    int aus = 0, errors = 0, agains = 0;
+    for (long pos = f[6] | f[7] << 8; pos + 12 <= n && aus < max_au;) {
+        long len = f[pos] | f[pos + 1] << 8 | f[pos + 2] << 16 | (long)f[pos + 3] << 24;
+        if (pos + 12 + len > n) break;
+        double t0 = now();
+        int r, stuck = 0, before = frames;
+        while ((r = pmhw_send(d, f + pos + 12, (int)len, aus)) == PMHW_AGAIN) {
+            send_time += now() - t0;
+            agains++;
+            drain(d);
+            if (frames == before && ++stuck > 20000) { printf("RESULT STUCK: the decoder never takes access unit %d\n", aus); return 4; }
+            t0 = now();
+        }
+        send_time += now() - t0;
+        if (r == PMHW_UNSUPPORTED) {
+            printf("RESULT UNSUPPORTED after %d access units, %d frames (use software for this stream)\n", aus, frames);
+            pmhw_close(d);
+            return 3;
+        }
+        if (r != PMHW_OK) errors++;
+        aus++;
+        drain(d);
+        pos += 12 + len;
+    }
+    pmhw_send(d, NULL, 0, 0);
+    drain(d);
+    double total = now() - t_start;
+    pmhw_close(d);
+    if (dump) fclose(dump);
+    print_result(errors, aus, agains, send_time, total);
+    return errors ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *path = NULL, *codec_name = NULL, *dump_path = NULL;
@@ -79,7 +127,7 @@ int main(int argc, char **argv)
         else path = argv[i];
     }
     if (query) {
-        const char *names[] = { "H.264", "HEVC", "VP9" };
+        const char *names[] = { "H.264", "HEVC", "VP9", "VP8" };
         for (int c = 0; c < PMHW_CODEC_COUNT; c++) {
             PmhwCaps caps;
             if (pmhw_query(c, &caps)) printf("%s: no hardware\n", names[c]);
@@ -99,6 +147,7 @@ int main(int argc, char **argv)
     fclose(f);
     if (dump_path) dump = fopen(dump_path, "wb");
     copybuf = malloc(4096 * 2304 * 3 / 2);
+    if (n > 32 && !memcmp(es, "DKIF", 4)) return run_ivf(es, n, max_au);
 
     PmhwDecoder *d = pmhw_open(hevc ? PMHW_CODEC_HEVC : PMHW_CODEC_H264, 0, 0);
     if (!d) { printf("RESULT NOHW no hardware decoder\n"); return 1; }
@@ -154,9 +203,6 @@ int main(int argc, char **argv)
     double total = now() - t_start;
     pmhw_close(d);
     if (dump) fclose(dump);
-    printf("RESULT %s access_units=%d frames=%d send_errors=%d agains=%d per frame: send %.2f ms, get %.3f ms, copy-out %.2f ms, total %.2f ms (%.1f fps)\n",
-           errors ? "ERRORS" : "OK", aus, frames, errors, agains, send_time * 1e3 / (frames ? frames : 1),
-           get_time * 1e3 / (frames ? frames : 1), copy_time * 1e3 / (frames ? frames : 1), total * 1e3 / (frames ? frames : 1),
-           frames / (total > 0 ? total : 1));
+    print_result(errors, aus, agains, send_time, total);
     return errors ? 1 : 0;
 }

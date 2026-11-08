@@ -84,9 +84,9 @@ static int find_media(int vfd, const char *video, char *out, size_t n)
  * without start codes) */
 static int find_device(PmhwCodec codec, Dev *dev)
 {
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC) return -1;
-    int hevc = codec == PMHW_CODEC_HEVC;
-    uint32_t fmt = hevc ? V4L2_PIX_FMT_HEVC_SLICE : V4L2_PIX_FMT_H264_SLICE;
+    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC && codec != PMHW_CODEC_VP8) return -1;
+    int hevc = codec == PMHW_CODEC_HEVC, vp8 = codec == PMHW_CODEC_VP8;
+    uint32_t fmt = vp8 ? V4L2_PIX_FMT_VP8_FRAME : hevc ? V4L2_PIX_FMT_HEVC_SLICE : V4L2_PIX_FMT_H264_SLICE;
     uint32_t sc_id = hevc ? V4L2_CID_STATELESS_HEVC_START_CODE : V4L2_CID_STATELESS_H264_START_CODE;
     uint32_t dm_id = hevc ? V4L2_CID_STATELESS_HEVC_DECODE_MODE : V4L2_CID_STATELESS_H264_DECODE_MODE;
     /* the H.264 and HEVC menus share values: SLICE_BASED 0, FRAME_BASED 1, START_CODE_NONE 0, ANNEX_B 1 */
@@ -105,7 +105,10 @@ static int find_device(PmhwCodec codec, Dev *dev)
                     if (f.pixelformat == fmt) ok = 1;
             }
         }
-        if (ok) {
+        if (ok && vp8) {
+            dev->slice_mode = 0;                       /* a whole frame per request, no modes to choose */
+            dev->start_code = 0;
+        } else if (ok) {
             int annexb = menu_has(fd, sc_id, V4L2_STATELESS_H264_START_CODE_ANNEX_B);
             int none = menu_has(fd, sc_id, V4L2_STATELESS_H264_START_CODE_NONE);
             /* HEVC frame-based (rkvdec, hantro G2: every slice's params as one array control) is not written yet */
@@ -129,7 +132,7 @@ static int find_device(PmhwCodec codec, Dev *dev)
                 if (fs.type == V4L2_FRMSIZE_TYPE_DISCRETE) { dev->max_w = fs.discrete.width; dev->max_h = fs.discrete.height; }
                 else { dev->max_w = fs.stepwise.max_width; dev->max_h = fs.stepwise.max_height; }
             }
-            LOG("v4l2req: %s %s = %s (%s), media %s, up to %dx%d, %s, %s", hevc ? "HEVC" : "H.264", dev->video, cap.card, cap.driver, dev->media,
+            LOG("v4l2req: %s %s = %s (%s), media %s, up to %dx%d, %s, %s", vp8 ? "VP8" : hevc ? "HEVC" : "H.264", dev->video, cap.card, cap.driver, dev->media,
                 dev->max_w, dev->max_h, dev->slice_mode ? "slice-based" : "frame-based", dev->mplane ? "multi-planar" : "single-planar");
         }
         close(fd);
@@ -184,6 +187,7 @@ typedef struct V {
     struct v4l2_ctrl_hevc_sps hsps;
     struct v4l2_ctrl_hevc_pps hpps;
     struct v4l2_ctrl_hevc_decode_params hdp;
+    struct v4l2_ctrl_vp8_frame vp8;
     struct v4l2_ctrl_hevc_slice_params hsp;
     uint32_t hep[256];           /* entry points of the pending slice (cedrus: up to 256 per slice) */
     int hnep;
@@ -330,12 +334,12 @@ static int v_configure(void *hw, const Geom *g)
     V *v = hw;
     teardown(v);
     v->g = *g;
-    int hevc = v->codec == PMHW_CODEC_HEVC;
-    uint32_t fmt = hevc ? V4L2_PIX_FMT_HEVC_SLICE : V4L2_PIX_FMT_H264_SLICE;
+    int hevc = v->codec == PMHW_CODEC_HEVC, vp8 = v->codec == PMHW_CODEC_VP8;
+    uint32_t fmt = vp8 ? V4L2_PIX_FMT_VP8_FRAME : hevc ? V4L2_PIX_FMT_HEVC_SLICE : V4L2_PIX_FMT_H264_SLICE;
     if (g->bit_depth > (hevc ? 10 : 8)) { LOG("v4l2req: %d-bit not supported", g->bit_depth); return -1; }
-    if (set_ctrl(v->vfd, hevc ? V4L2_CID_STATELESS_HEVC_DECODE_MODE : V4L2_CID_STATELESS_H264_DECODE_MODE,
+    if (!vp8 && (set_ctrl(v->vfd, hevc ? V4L2_CID_STATELESS_HEVC_DECODE_MODE : V4L2_CID_STATELESS_H264_DECODE_MODE,
                  v->dev.slice_mode ? V4L2_STATELESS_H264_DECODE_MODE_SLICE_BASED : V4L2_STATELESS_H264_DECODE_MODE_FRAME_BASED) ||
-        set_ctrl(v->vfd, hevc ? V4L2_CID_STATELESS_HEVC_START_CODE : V4L2_CID_STATELESS_H264_START_CODE, v->dev.start_code)) {
+        set_ctrl(v->vfd, hevc ? V4L2_CID_STATELESS_HEVC_START_CODE : V4L2_CID_STATELESS_H264_START_CODE, v->dev.start_code))) {
         ERR("v4l2req: decode mode / start code: %s", strerror(errno));
         return -1;
     }
@@ -386,7 +390,7 @@ static int v_configure(void *hw, const Geom *g)
     LOG("v4l2req: capture NV12 %ux%u, %u bytes per line, %u planes", mp ? f.fmt.pix_mp.width : f.fmt.pix.width, v->cap_h,
         v->bpl, v->cap_planes);
 
-    struct v4l2_requestbuffers rb = { .count = v->dev.slice_mode ? SLICE_OUT_BUFS : OUT_BUFS, .memory = V4L2_MEMORY_MMAP, .type = OUT_T(v) };
+    struct v4l2_requestbuffers rb = { .count = v->dev.slice_mode || vp8 ? SLICE_OUT_BUFS : OUT_BUFS, .memory = V4L2_MEMORY_MMAP, .type = OUT_T(v) };
     if (xioctl(v->vfd, VIDIOC_REQBUFS, &rb) || rb.count < 1) { ERR("v4l2req: REQBUFS output: %s", strerror(errno)); return -1; }
     v->can_hold = !!(rb.capabilities & V4L2_BUF_CAP_SUPPORTS_M2M_HOLD_CAPTURE_BUF);
     if (v->dev.slice_mode && !v->can_hold) LOG("v4l2req: no HOLD_CAPTURE_BUF: single-slice pictures only");
@@ -459,6 +463,9 @@ static int send_request(V *v, int o, int hold)
         };
         n = v->hnep ? 5 : 4;
         memcpy(c, h, sizeof h);
+    } else if (v->codec == PMHW_CODEC_VP8) {
+        c[0] = (struct v4l2_ext_control){ .id = V4L2_CID_STATELESS_VP8_FRAME, .size = sizeof v->vp8, .ptr = &v->vp8 };
+        n = 1;
     }
     struct v4l2_ext_controls cs = { .which = V4L2_CTRL_WHICH_REQUEST_VAL, .count = n, .request_fd = req, .controls = c };
     int rc = 0;
@@ -870,6 +877,69 @@ static int v_end_picture(void *hw, int slot)
     return rc;
 }
 
+/* a whole frame, tag included, in one request */
+static int v_vp8_frame(void *hw, const Vp8Job *j)
+{
+    V *v = hw;
+    const Vp8Hdr *h = j->h;
+    Map *o = &v->out[v->next_out];
+    if (!o->p || j->len > (int)o->len) { ERR("v4l2req: frame does not fit the input buffer"); return -1; }
+    memcpy(o->p, j->data, j->len);
+    v->len = j->len;
+    v->failed = v->pending = v->cap_queued = v->nsent = 0;
+    v->cur = j->cur;
+    v->cur_ts = ++v->counter;
+    v->ts[j->cur] = v->cur_ts * 1000000000ull;
+    struct v4l2_ctrl_vp8_frame *f = &v->vp8;
+    memset(f, 0, sizeof *f);
+    memcpy(f->segment.quant_update, h->seg_q, sizeof h->seg_q);
+    memcpy(f->segment.lf_update, h->seg_lf, sizeof h->seg_lf);
+    memcpy(f->segment.segment_probs, h->seg_probs, sizeof h->seg_probs);
+    f->segment.flags = (h->seg_enabled ? V4L2_VP8_SEGMENT_FLAG_ENABLED : 0) |
+                       (h->seg_update_map ? V4L2_VP8_SEGMENT_FLAG_UPDATE_MAP : 0) |
+                       (h->seg_update_data ? V4L2_VP8_SEGMENT_FLAG_UPDATE_FEATURE_DATA : 0) |
+                       (h->seg_abs ? 0 : V4L2_VP8_SEGMENT_FLAG_DELTA_VALUE_MODE);
+    memcpy(f->lf.ref_frm_delta, h->ref_delta, sizeof h->ref_delta);
+    memcpy(f->lf.mb_mode_delta, h->mode_delta, sizeof h->mode_delta);
+    f->lf.sharpness_level = h->sharpness;
+    f->lf.level = h->lf_level;
+    f->lf.flags = (h->lf_delta_enabled ? V4L2_VP8_LF_ADJ_ENABLE : 0) | (h->lf_delta_update ? V4L2_VP8_LF_DELTA_UPDATE : 0) |
+                  (h->filter_simple ? V4L2_VP8_LF_FILTER_TYPE_SIMPLE : 0);
+    f->quant.y_ac_qi = h->y_ac_qi;
+    f->quant.y_dc_delta = h->y_dc;
+    f->quant.y2_dc_delta = h->y2_dc;
+    f->quant.y2_ac_delta = h->y2_ac;
+    f->quant.uv_dc_delta = h->uv_dc;
+    f->quant.uv_ac_delta = h->uv_ac;
+    memcpy(f->entropy.coeff_probs, h->e.coeff, sizeof h->e.coeff);
+    memcpy(f->entropy.y_mode_probs, h->e.y_mode, sizeof h->e.y_mode);
+    memcpy(f->entropy.uv_mode_probs, h->e.uv_mode, sizeof h->e.uv_mode);
+    memcpy(f->entropy.mv_probs, h->e.mv, sizeof h->e.mv);
+    f->coder_state.range = h->coder_range;
+    f->coder_state.value = h->coder_value;
+    f->coder_state.bit_count = h->coder_bits;
+    f->width = h->width;
+    f->height = h->height;
+    f->horizontal_scale = h->hscale;
+    f->vertical_scale = h->vscale;
+    f->version = h->version;
+    f->prob_skip_false = h->prob_skip;
+    f->prob_intra = h->prob_intra;
+    f->prob_last = h->prob_last;
+    f->prob_gf = h->prob_gf;
+    f->num_dct_parts = 1 << h->log2_parts;
+    f->first_part_size = h->first_part_size;
+    f->first_part_header_bits = h->header_bits;
+    for (int i = 0; i < f->num_dct_parts; i++) f->dct_part_sizes[i] = h->part_size[i];
+    if (j->last >= 0) f->last_frame_ts = v->ts[j->last];
+    if (j->golden >= 0) f->golden_frame_ts = v->ts[j->golden];
+    if (j->alt >= 0) f->alt_frame_ts = v->ts[j->alt];
+    f->flags = (h->key ? V4L2_VP8_FRAME_FLAG_KEY_FRAME : 0) | (h->show ? V4L2_VP8_FRAME_FLAG_SHOW_FRAME : 0) |
+               (h->no_coeff_skip ? V4L2_VP8_FRAME_FLAG_MB_NO_SKIP_COEFF : 0) |
+               (h->sign_golden ? V4L2_VP8_FRAME_FLAG_SIGN_BIAS_GOLDEN : 0) | (h->sign_alt ? V4L2_VP8_FRAME_FLAG_SIGN_BIAS_ALT : 0);
+    return v_end_picture(hw, j->cur);
+}
+
 static void v_export(void *hw, int slot, PmhwPicture *pic)
 {
     V *v = hw;
@@ -902,5 +972,5 @@ static void v_close(void *hw)
 static void *v_open_ops(PmhwCodec codec) { return v_open(codec); }
 
 const HwOps pmhw_v4l2req_ops = {
-    "v4l2req", v_query, v_open_ops, v_configure, v_h264_slice, v_hevc_slice, v_export, v_close, v_end_picture,
+    "v4l2req", v_query, v_open_ops, v_configure, v_h264_slice, v_hevc_slice, v_export, v_close, v_end_picture, v_vp8_frame,
 };

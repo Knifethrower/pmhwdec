@@ -2,7 +2,8 @@
 /* "cedar": Allwinner video engine on vendor 4.9 kernels (/dev/cedar_dev), without any Allwinner userspace code.
  *
  * Decode programming ported to userspace from mainline Linux Cedrus (drivers/staging/media/sunxi/cedrus:
- * cedrus_h264.c, cedrus_h265.c, GPL-2.0-or-later; Copyright 2013 Jens Kuske, 2018 Paul Kocialkowski / Bootlin).
+ * cedrus_h264.c, cedrus_h265.c, cedrus_vp8.c, GPL-2.0-or-later; Copyright 2013 Jens Kuske, 2018 Paul Kocialkowski /
+ * Bootlin, 2019 Jernej Skrabec).
  * Register offsets and fields: ve_regs.h (hardware facts, generated and checked by tools/gen_ve_regs.py and
  * tools/check_ve_regs.sh). Device interface of the vendor driver (drivers/media/cedar-ve/cedar_ve.c): ioctl numbers,
  * mmap of the MACC registers, IOMMU mapping of dma-bufs, IRQ wait. Memory: 4.9 ION.
@@ -18,6 +19,8 @@
 #include <unistd.h>
 #include "codec.h"
 #include "ve_regs.h"
+#include "vp8_tables.h"
+#include "cedar_vp8_table.h"
 
 /* ---- cedar_ve.h (vendor 4.9), enum IOCTL_CMD ---- */
 #define IOCTL_WAIT_VE_DE      0x102
@@ -55,6 +58,8 @@ struct sunxi_cache_range { long start, end; };
 #define H265_ENTRY_POINTS_SIZE  (4 * 1024)
 #define H265_MV_COL_UNIT_CTB    160
 #define H265_OUTPUT_INDEX       16
+#define VP8_ENTROPY_PROBS_SIZE  0x2400
+#define VP8_PROB_HALF           128
 enum { SRAM_H264_PRED_WEIGHT_TABLE = 0x000, SRAM_H264_FRAMEBUFFER_LIST = 0x100, SRAM_H264_REF_LIST_0 = 0x190,
        SRAM_H264_REF_LIST_1 = 0x199 };
 
@@ -198,7 +203,7 @@ static void dev_put(void)
 /* ---------------- capabilities ---------------- */
 static int cedar_query(PmhwCodec codec, PmhwCaps *caps)
 {
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC) return -1;
+    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC && codec != PMHW_CODEC_VP8) return -1;
     if (access("/dev/cedar_dev", R_OK | W_OK) || access("/dev/ion", R_OK | W_OK)) return -1;
     if (!ip_version) { if (dev_get()) return -1; dev_put(); }
     /* Cedrus H6 family limits; the VE generation check: 0xf0 reads 0 and the IP sits in 0xe0 on these chips */
@@ -217,7 +222,8 @@ typedef struct Cedar {
     PmhwCodec codec;
     Geom g;
     Pic pic[MAX_SLOTS];
-    Buf bs, pinfo, neigh, deblk, intra, ep;
+    Buf bs, pinfo, neigh, deblk, intra, ep, probs;
+    int vp8_last_simple, vp8_last_p, vp8_last_sharpness;     /* the loop filter settings of the last filtered frame */
 } Cedar;
 
 static void *cedar_open(PmhwCodec codec)
@@ -232,7 +238,7 @@ static void *cedar_open(PmhwCodec codec)
 static void free_bufs(Cedar *c)
 {
     for (int i = 0; i < MAX_SLOTS; i++) buf_free(&c->pic[i].mem);
-    buf_free(&c->pinfo); buf_free(&c->neigh); buf_free(&c->deblk); buf_free(&c->intra); buf_free(&c->ep);
+    buf_free(&c->pinfo); buf_free(&c->neigh); buf_free(&c->deblk); buf_free(&c->intra); buf_free(&c->ep); buf_free(&c->probs);
 }
 
 unsigned pmhw_cedar_gen;            /* pmhw-cedard: tells the client its old picture buffers are gone */
@@ -253,6 +259,11 @@ static int cedar_configure(void *hw, const Geom *g)
         if (pinfo < 130 * 1024) pinfo = 130 * 1024;
         if (buf_alloc(&c->pinfo, pinfo) || buf_alloc(&c->neigh, H264_NEIGHBOR_INFO_SIZE)) goto fail;
         if (g->width > 2048 && (buf_alloc(&c->deblk, ALIGN(g->width, 32) * 12) || buf_alloc(&c->intra, ALIGN(g->width, 64) * 5 * 2))) goto fail;
+    } else if (g->codec == PMHW_CODEC_VP8) {
+        if (buf_alloc(&c->probs, VP8_ENTROPY_PROBS_SIZE)) goto fail;
+        memset(c->probs.cpu, 0, VP8_ENTROPY_PROBS_SIZE);
+        memcpy(c->probs.cpu + 2048, cedar_vp8_prob_init, sizeof cedar_vp8_prob_init);
+        c->vp8_last_simple = c->vp8_last_p = c->vp8_last_sharpness = 0;
     } else {
         int ctb = 1 << g->hevc_ctb_log2;
         mv = DIV_ROUND_UP(g->width, ctb) * DIV_ROUND_UP(g->height, ctb) * H265_MV_COL_UNIT_CTB + 1024;
@@ -578,6 +589,168 @@ static int cedar_hevc_slice(void *hw, const HevcJob *j)
     return r;
 }
 
+/* ---------------- VP8 (cedrus_vp8.c) ---------------- */
+static int vp8_hw_error;
+
+static void vp8_wait(uint32_t busy)
+{
+    for (int spin = 0; rd(VE_H264_STATUS) & busy; spin++)
+        if (spin > 1000000) { if (!vp8_hw_error) ERR("cedar: VP8 header read timed out"); vp8_hw_error = 1; return; }
+}
+
+static uint32_t vp8_bits_p(int n, int prob)
+{
+    wr(VE_H264_TRIGGER_TYPE, VE_H264_TRIGGER_TYPE_VP8_GET_BITS | VE_H264_TRIGGER_TYPE_BIN_LENS(n) | VE_H264_TRIGGER_TYPE_PROBABILITY(prob));
+    vp8_wait(VE_H264_STATUS_VLD_BUSY);
+    return rd(VE_H264_BASIC_BITS);
+}
+static uint32_t vp8_bits(int n) { return vp8_bits_p(n, VP8_PROB_HALF); }
+
+static void vp8_skip_optional(int n) { if (vp8_bits(1)) { vp8_bits(n); vp8_bits(1); } }
+
+/* The engine has to read the frame header itself, or the picture comes out wrong (cedrus_vp8.c: the probability
+ * update it triggers seems to set internal state); the values read are not used. */
+static void vp8_read_header(int key)
+{
+    if (key) { vp8_bits(1); vp8_bits(1); }
+    if (vp8_bits(1)) {                              /* segmentation */
+        int update_map = vp8_bits(1);
+        if (vp8_bits(1)) {
+            vp8_bits(1);
+            for (int i = 0; i < 4; i++) vp8_skip_optional(7);
+            for (int i = 0; i < 4; i++) vp8_skip_optional(6);
+        }
+        if (update_map) for (int i = 0; i < 3; i++) if (vp8_bits(1)) vp8_bits(8);
+    }
+    vp8_bits(1); vp8_bits(6); vp8_bits(3);
+    if (vp8_bits(1) && vp8_bits(1)) {               /* loop filter deltas: enabled, updated */
+        for (int i = 0; i < 8; i++) vp8_skip_optional(6);
+    }
+    vp8_bits(2);
+    vp8_bits(7);
+    for (int i = 0; i < 5; i++) vp8_skip_optional(4);
+    if (!key) {
+        int refresh_golden = vp8_bits(1), refresh_alt = vp8_bits(1);
+        if (!refresh_golden) vp8_bits(2);
+        if (!refresh_alt) vp8_bits(2);
+        vp8_bits(1); vp8_bits(1);
+    }
+    vp8_bits(1);
+    if (!key) vp8_bits(1);
+    wr(VE_H264_TRIGGER_TYPE, VE_H264_TRIGGER_TYPE_VP8_UPDATE_COEF);
+    vp8_wait(VE_H264_STATUS_VP8_UPPROB_BUSY);
+    wr(VE_H264_STATUS, VE_H264_STATUS_INT_MASK);
+    if (vp8_bits(1)) vp8_bits(8);
+    if (!key) {
+        vp8_bits(8); vp8_bits(8); vp8_bits(8);
+        if (vp8_bits(1)) for (int i = 0; i < 4; i++) vp8_bits(8);
+        if (vp8_bits(1)) for (int i = 0; i < 3; i++) vp8_bits(8);
+        for (int i = 0; i < 2; i++)
+            for (int j = 0; j < 19; j++)
+                if (vp8_bits_p(1, vp8_mv_update_probs[i][j])) vp8_bits(7);
+    }
+}
+
+static void vp8_update_probs(uint8_t *t, const Vp8Hdr *h)
+{
+    memcpy(t + 0x1008, h->e.y_mode, sizeof h->e.y_mode);
+    memcpy(t + 0x1010, h->e.uv_mode, sizeof h->e.uv_mode);
+    memcpy(t + 0x1018, h->seg_probs, sizeof h->seg_probs);
+    t[0x101c] = h->prob_skip;
+    t[0x101d] = h->prob_intra;
+    t[0x101e] = h->prob_last;
+    t[0x101f] = h->prob_gf;
+    memcpy(t + 0x1020, h->e.mv[0], 19);
+    memcpy(t + 0x1040, h->e.mv[1], 19);
+    for (int i = 0; i < 4; i++)
+        for (int j = 0; j < 8; j++)
+            for (int k = 0; k < 3; k++)
+                memcpy(t + i * 512 + j * 64 + k * 16, h->e.coeff[i][j][k], 11);
+}
+
+static void vp8_ref(const Cedar *c, int slot, unsigned luma, unsigned chroma)
+{
+    wr(luma, slot >= 0 ? c->pic[slot].luma : 0);
+    wr(chroma, slot >= 0 ? c->pic[slot].chroma : 0);
+}
+
+static int cedar_vp8_frame(void *hw, const Vp8Job *j)
+{
+    Cedar *c = hw;
+    const Vp8Hdr *h = j->h;
+    if (ensure_bs(c, j->len)) return -1;
+    memcpy(c->bs.cpu, j->data, j->len);
+    vp8_update_probs(c->probs.cpu, h);
+    __sync_synchronize();
+    pthread_mutex_lock(&dev_lock);
+    vp8_hw_error = 0;
+    output_format(c, VE_MODE_DEC_H264);             /* VP8 runs on the H.264 engine */
+    wr(VE_H264_CTRL, VE_H264_CTRL_VP8);
+    wr(VE_VP8_FIRST_DATA_PART_LEN, h->first_part_size * 8);
+    wr(VE_VP8_PART_SIZE_OFFSET, h->first_part_size + h->header_size);
+    wr(VE_H264_VLD_LEN, (uint32_t)c->bs.size * 8);
+    wr(VE_H264_VLD_OFFSET, h->header_size * 8);
+    wr(VE_H264_VLD_END, c->bs.ve + j->len);
+    wr(VE_H264_VLD_ADDR, VE_H264_VLD_ADDR_VAL(c->bs.ve) | VE_H264_VLD_ADDR_FIRST | VE_H264_VLD_ADDR_VALID | VE_H264_VLD_ADDR_LAST);
+    wr(VE_H264_TRIGGER_TYPE, VE_H264_TRIGGER_TYPE_INIT_SWDEC);
+    wr(VE_VP8_ENTROPY_PROBS_ADDR, c->probs.ve);
+    uint32_t reg = 0;
+    if (h->version == 1) reg |= VE_VP8_PPS_FILTER_TYPE_SIMPLE | VE_VP8_PPS_BILINEAR_MC_FILTER;
+    else if (h->version == 2) reg |= VE_VP8_PPS_LPF_DISABLE | VE_VP8_PPS_BILINEAR_MC_FILTER;
+    else if (h->version == 3) reg |= VE_VP8_PPS_LPF_DISABLE | VE_VP8_PPS_FULL_PIXEL;
+    if (h->seg_update_map) reg |= VE_VP8_PPS_UPDATE_MB_SEGMENTATION_MAP;
+    if (h->seg_abs) reg |= VE_VP8_PPS_MB_SEGMENT_ABS_DELTA;
+    if (h->seg_enabled) reg |= VE_VP8_PPS_SEGMENTATION_ENABLE;
+    if (c->vp8_last_simple) reg |= VE_VP8_PPS_LAST_LOOP_FILTER_SIMPLE;
+    reg |= VE_VP8_PPS_SHARPNESS_LEVEL(h->sharpness);
+    if (h->filter_simple) reg |= VE_VP8_PPS_LOOP_FILTER_SIMPLE;
+    reg |= VE_VP8_PPS_LOOP_FILTER_LEVEL(h->lf_level);
+    if (h->lf_delta_enabled) reg |= VE_VP8_PPS_MODE_REF_LF_DELTA_ENABLE;
+    if (h->lf_delta_update) reg |= VE_VP8_PPS_MODE_REF_LF_DELTA_UPDATE;
+    reg |= VE_VP8_PPS_TOKEN_PARTITION(h->log2_parts);
+    if (h->no_coeff_skip) reg |= VE_VP8_PPS_MB_NO_COEFF_SKIP;
+    reg |= VE_VP8_PPS_RELOAD_ENTROPY_PROBS;
+    if (h->sign_golden) reg |= VE_VP8_PPS_GOLDEN_SIGN_BIAS;
+    if (h->sign_alt) reg |= VE_VP8_PPS_ALTREF_SIGN_BIAS;
+    if (c->vp8_last_p) reg |= VE_VP8_PPS_LAST_PIC_TYPE_P_FRAME;
+    reg |= VE_VP8_PPS_LAST_SHARPNESS_LEVEL(c->vp8_last_sharpness);
+    if (!h->key) reg |= VE_VP8_PPS_PIC_TYPE_P_FRAME;
+    wr(VE_VP8_PPS, reg);
+    vp8_read_header(h->key);
+    if (vp8_hw_error) { ioctl(ve_fd, IOCTL_RESET_VE, 0); pthread_mutex_unlock(&dev_lock); return -1; }
+    wr(VE_H264_CUR_MB_NUM, 0);                      /* the header read changed these */
+    wr(VE_H264_MB_ADDR, 0);
+    wr(VE_H264_ERROR_CASE, 0);
+    wr(VE_VP8_QP_INDEX_DELTA, VE_VP8_QP_INDEX_DELTA_UVAC(h->uv_ac) | VE_VP8_QP_INDEX_DELTA_UVDC(h->uv_dc) |
+                              VE_VP8_QP_INDEX_DELTA_Y2AC(h->y2_ac) | VE_VP8_QP_INDEX_DELTA_Y2DC(h->y2_dc) |
+                              VE_VP8_QP_INDEX_DELTA_Y1DC(h->y_dc) | VE_VP8_QP_INDEX_DELTA_BASE_QINDEX(h->y_ac_qi));
+    wr(VE_VP8_FSIZE, VE_VP8_FSIZE_WIDTH(h->width) | VE_VP8_FSIZE_HEIGHT(h->height));
+    wr(VE_VP8_PICSIZE, VE_VP8_PICSIZE_WIDTH(h->width) | VE_VP8_PICSIZE_HEIGHT(h->height));
+    wr(VE_VP8_SEGMENT_FEAT_MB_LV0, VE_VP8_SEGMENT3(h->seg_q[3]) | VE_VP8_SEGMENT2(h->seg_q[2]) |
+                                   VE_VP8_SEGMENT1(h->seg_q[1]) | VE_VP8_SEGMENT0(h->seg_q[0]));
+    wr(VE_VP8_SEGMENT_FEAT_MB_LV1, VE_VP8_SEGMENT3(h->seg_lf[3]) | VE_VP8_SEGMENT2(h->seg_lf[2]) |
+                                   VE_VP8_SEGMENT1(h->seg_lf[1]) | VE_VP8_SEGMENT0(h->seg_lf[0]));
+    wr(VE_VP8_REF_LF_DELTA, VE_VP8_LF_DELTA3(h->ref_delta[3]) | VE_VP8_LF_DELTA2(h->ref_delta[2]) |
+                            VE_VP8_LF_DELTA1(h->ref_delta[1]) | VE_VP8_LF_DELTA0(h->ref_delta[0]));
+    wr(VE_VP8_MODE_LF_DELTA, VE_VP8_LF_DELTA3(h->mode_delta[3]) | VE_VP8_LF_DELTA2(h->mode_delta[2]) |
+                             VE_VP8_LF_DELTA1(h->mode_delta[1]) | VE_VP8_LF_DELTA0(h->mode_delta[0]));
+    wr(VE_VP8_REC_LUMA, c->pic[j->cur].luma);
+    wr(VE_VP8_REC_CHROMA, c->pic[j->cur].chroma);
+    vp8_ref(c, j->last, VE_VP8_FWD_LUMA, VE_VP8_FWD_CHROMA);
+    vp8_ref(c, j->golden, VE_VP8_BWD_LUMA, VE_VP8_BWD_CHROMA);
+    vp8_ref(c, j->alt, VE_VP8_ALT_LUMA, VE_VP8_ALT_CHROMA);
+    wr(VE_H264_CTRL, VE_H264_CTRL_VP8 | VE_H264_CTRL_DECODE_ERR_INT | VE_H264_CTRL_SLICE_DECODE_INT);
+    if (h->lf_level) {
+        c->vp8_last_simple = h->filter_simple;
+        c->vp8_last_p = !h->key;
+        c->vp8_last_sharpness = h->sharpness;
+    }
+    int r = run(VE_H264_TRIGGER_TYPE, VE_H264_TRIGGER_TYPE_VP8_SLICE_DECODE, VE_H264_STATUS, VE_H264_STATUS_SLICE_DECODE_INT,
+                VE_H264_STATUS_DECODE_ERR_INT | VE_H264_STATUS_VLD_DATA_REQ_INT, VE_H264_CTRL, VE_H264_STATUS_INT_MASK);
+    pthread_mutex_unlock(&dev_lock);
+    return r;
+}
+
 /* ---------------- pictures out ---------------- */
 static void cedar_export(void *hw, int slot, PmhwPicture *pic)
 {
@@ -616,5 +789,5 @@ static void cedar_close(void *hw)
 }
 
 const HwOps pmhw_cedar_ops = {
-    "cedar", cedar_query, cedar_open, cedar_configure, cedar_h264_slice, cedar_hevc_slice, cedar_export, cedar_close, NULL,
+    "cedar", cedar_query, cedar_open, cedar_configure, cedar_h264_slice, cedar_hevc_slice, cedar_export, cedar_close, NULL, cedar_vp8_frame,
 };

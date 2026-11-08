@@ -81,7 +81,8 @@ static void *sl_open(const HwOps *ops, PmhwCodec codec, int width, int height)
     s->need_key = 1;
     s->hwctx = ops->open(codec);
     if (!s->hwctx) { free(s); return NULL; }
-    s->codec_state = codec == PMHW_CODEC_H264 ? h264_new() : codec == PMHW_CODEC_HEVC ? hevc_new() : NULL;
+    s->codec_state = codec == PMHW_CODEC_H264 ? h264_new() : codec == PMHW_CODEC_HEVC ? hevc_new() :
+                     codec == PMHW_CODEC_VP8 ? vp8_new() : NULL;
     if (!s->codec_state) { ops->close(s->hwctx); free(s); return NULL; }
     return s;
 }
@@ -97,6 +98,7 @@ static int sl_send(void *ctx, const uint8_t *data, int size, int64_t pts)
     SL *s = ctx;
     if (!data || size <= 0) { end_picture(s); s->eos = 1; return PMHW_OK; }
     if (s->eos) s->eos = 0;
+    if (s->codec == PMHW_CODEC_VP8) return vp8_frame(s, data, size, pts);   /* no NAL units: one frame per call */
     int rc = PMHW_OK;
     for (int i = 0; i + 3 <= size;) {
         if (!(data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1)) { i++; continue; }
@@ -156,14 +158,14 @@ static void sl_flush(void *ctx)
     s->cur = -1;
     s->eos = s->bump = 0;
     s->need_key = 1;
-    if (s->codec == PMHW_CODEC_H264) h264_reset(s); else hevc_reset(s);
+    if (s->codec == PMHW_CODEC_H264) h264_reset(s); else if (s->codec == PMHW_CODEC_VP8) vp8_reset(s); else hevc_reset(s);
 }
 
 static void sl_close(void *ctx)
 {
     SL *s = ctx;
     if (!s) return;
-    if (s->codec == PMHW_CODEC_H264) h264_free(s->codec_state); else hevc_free(s->codec_state);
+    if (s->codec == PMHW_CODEC_H264) h264_free(s->codec_state); else if (s->codec == PMHW_CODEC_VP8) vp8_free(s->codec_state); else hevc_free(s->codec_state);
     s->hw->close(s->hwctx);
     free(s->rbsp); free(s->epb);
     free(s);

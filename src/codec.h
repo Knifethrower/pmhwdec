@@ -93,4 +93,34 @@ typedef struct HevcJob {
     int nal_len;
 } HevcJob;
 
+/* ---------------- VP8 ---------------- */
+typedef struct Vp8Entropy {
+    uint8_t coeff[4][8][3][11], y_mode[4], uv_mode[3], mv[2][19];
+} Vp8Entropy;
+
+typedef struct Vp8Hdr {
+    int key, version, show, first_part_size, header_size;    /* header_size: the uncompressed bytes, 3 or 10 */
+    int width, height, hscale, vscale;
+    int seg_enabled, seg_update_map, seg_update_data, seg_abs;
+    int8_t seg_q[4], seg_lf[4];
+    uint8_t seg_probs[3];
+    int filter_simple, lf_level, sharpness, lf_delta_enabled, lf_delta_update;
+    int8_t ref_delta[4], mode_delta[4];
+    int log2_parts;
+    uint32_t part_size[8];
+    int y_ac_qi, y_dc, y2_dc, y2_ac, uv_dc, uv_ac;
+    int refresh_golden, refresh_alt, refresh_last, copy_to_golden, copy_to_alt, sign_golden, sign_alt;
+    int no_coeff_skip, prob_skip, prob_intra, prob_last, prob_gf;
+    Vp8Entropy e;                                   /* after this frame's updates */
+    int coder_range, coder_value, coder_bits, header_bits;   /* boolean decoder at the end of the header (V4L2) */
+} Vp8Hdr;
+
+typedef struct Vp8Job {
+    const Vp8Hdr *h;
+    const Slot *slots;
+    int nslots, cur, last, golden, alt;             /* slot indices; references are -1 before the first key frame */
+    const uint8_t *data;                            /* the whole frame, from its 3-byte tag */
+    int len;
+} Vp8Job;
+
 #endif

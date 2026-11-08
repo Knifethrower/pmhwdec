@@ -93,7 +93,8 @@ static int load_mpp(void)
 
 static MppCodingType coding(PmhwCodec c)
 {
-    return c == PMHW_CODEC_H264 ? MPP_VIDEO_CodingAVC : c == PMHW_CODEC_HEVC ? MPP_VIDEO_CodingHEVC : MPP_VIDEO_CodingVP9;
+    return c == PMHW_CODEC_H264 ? MPP_VIDEO_CodingAVC : c == PMHW_CODEC_HEVC ? MPP_VIDEO_CodingHEVC :
+           c == PMHW_CODEC_VP8 ? MPP_VIDEO_CodingVP8 : MPP_VIDEO_CodingVP9;
 }
 
 static int soc_is_rk3326(void)
@@ -115,7 +116,7 @@ static int soc_is_rk3326(void)
 
 static int rk_query(PmhwCodec codec, PmhwCaps *caps)
 {
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC) return -1;   /* VP9: later (needs IVF input in the tools) */
+    if (codec == PMHW_CODEC_VP9) return -1;                                /* VP9: later */
     int node = 0;
     const char *denied = NULL;
     for (int i = 0; nodes[i]; i++) {

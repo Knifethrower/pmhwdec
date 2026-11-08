@@ -1,6 +1,6 @@
 # libpmhwdec
 
-Hardware video decoding for PortMaster handhelds: one small library that decodes H.264 and HEVC
+Hardware video decoding for PortMaster handhelds: one small library that decodes H.264, HEVC and VP8
 on the handheld's video engine and tells you plainly when it can't, so you fall back to software.
 It picks the right backend at run time and checks it with a short self-test before trusting it.
 
@@ -17,19 +17,20 @@ the backend has one.
 ## Verified on
 
 Bit-exact against FFmpeg's software decoder on test clips (Baseline/Main/High H.264 with B-frames,
-weighted prediction and multiple slices; HEVC Main incl. WPP and multiple slices; Big Buck Bunny 1080p):
+weighted prediction and multiple slices; HEVC Main incl. WPP and multiple slices; VP8 profiles 0-3 with alt-ref
+frames, token partitions and segments; Big Buck Bunny 1080p):
 
-| Handheld | SoC, firmware | Backend | H.264 | HEVC | HEVC 10-bit |
-|---|---|---|---|---|---|
-| RG Cube XX | H700, Knulli | cedar | yes | yes | yes (8-bit output) |
-| TrimUI Smart Pro | A133P, Knulli | cedar | yes | yes | no (the chip has none) |
-| TrimUI Brick | A133P, muOS | cedar | yes | yes | no |
-| R36S | RK3326, dArkOS | rkmpp | yes | yes | no |
-| RG353V | RK3566, dArkOS | rkmpp | yes | yes | yes |
-| RG552 | RK3399, AmberELEC | rkmpp | yes | yes | yes |
-| RG351P | RK3326, ROCKNIX | v4l2req (hantro) | yes | no (no driver) | |
-| RG34XX SP | H700, ROCKNIX with Cedrus test modules | v4l2req (Cedrus, slice-based) | yes | yes | yes |
-| Retroid Pocket 5 | SM8250, ROCKNIX | v4l2m2m | yes (rare off-by-one samples from the firmware) | yes | no |
+| Handheld | SoC, firmware | Backend | H.264 | HEVC | HEVC 10-bit | VP8 |
+|---|---|---|---|---|---|---|
+| RG Cube XX | H700, Knulli | cedar | yes | yes | yes (8-bit output) | yes |
+| TrimUI Smart Pro | A133P, Knulli | cedar | yes | yes | no (the chip has none) | yes |
+| TrimUI Brick | A133P, muOS | cedar | yes | yes | no | not run |
+| R36S | RK3326, dArkOS | rkmpp | yes | yes | no | yes (R36S 2GB) |
+| RG353V | RK3566, dArkOS | rkmpp | yes | yes | yes | not run |
+| RG552 | RK3399, AmberELEC | rkmpp | yes | yes | yes | yes |
+| RG351P | RK3326, ROCKNIX | v4l2req (hantro) | yes | no (no driver) | no | yes |
+| RG34XX SP | H700, ROCKNIX with Cedrus test modules | v4l2req (Cedrus, slice-based) | yes | yes | yes | not run |
+| Retroid Pocket 5 | SM8250, ROCKNIX | v4l2m2m | yes (rare off-by-one samples from the firmware) | yes | no | no (not wired up) |
 
 32-bit (armhf) programs use the armhf library; on Allwinner it starts the aarch64 `pmhw-cedard`, since
 these handhelds run 64-bit kernels (checked on the RG Cube XX and, with armhf MPP, the R36S).
@@ -93,4 +94,6 @@ working log (chips, drivers, measurements, decisions).
   files in `probe/` are GPL-2.0-or-later.
 - **`include/pmhwdec.h`**: MIT.
 - **Rockchip MPP** (built by `rkmpp/build_mpp.sh`): Apache-2.0 / MIT, its own license file.
+- `src/vp8_tables.h`: VP8's fixed probability tables from libvpx, BSD-3-Clause (`licenses/LICENSE.libvpx.txt`).
+- `src/cedar_vp8_table.h` (from mainline Cedrus) is GPL-2.0-or-later and only built into pmhw-cedard.
 - `src/uapi/linux/`: Linux UAPI headers (GPL-2.0 WITH Linux-syscall-note).

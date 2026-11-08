@@ -33,8 +33,8 @@ else
 fi
 CFLAGS="-O2 -fPIC -Wall -Wextra -Werror=implicit-function-declaration -I$HERE/src/uapi -I$HERE/include -I$HERE/src"
 MPP_INC=${MPP_INC:-$HOME/pmhw/mpp/inc}         # Rockchip MPP headers (rkmpp/build_mpp.sh clones them)
-SRCS="pmhwdec selftest stateless h264 hevc cedar_client rkmpp v4l2req v4l2m2m"
-CEDARD_SRCS="cedard cedar stateless h264 hevc"
+SRCS="pmhwdec selftest stateless h264 hevc vp8 cedar_client rkmpp v4l2req v4l2m2m"
+CEDARD_SRCS="cedard cedar stateless h264 hevc vp8"
 rm -f "$OUT"/obj/*.o "$OUT"/obj-cedard/*.o
 for s in $SRCS; do $CC $CFLAGS -I"$MPP_INC" -c "$HERE/src/$s.c" -o "$OUT/obj/$s.o"; done
 [ "$ARCH" = armhf ] && CEDARD_SRCS=""

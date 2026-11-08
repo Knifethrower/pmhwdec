@@ -53,6 +53,7 @@ typedef struct Geom {
 
 struct H264Job;
 struct HevcJob;
+struct Vp8Job;
 
 typedef struct HwOps {
     const char *name;
@@ -66,6 +67,7 @@ typedef struct HwOps {
     /* optional: frame-based hardware decodes here, after all slices of the picture went through *_slice();
      * called before reference marking. 0 ok, 1 decoded with errors, -1 failed */
     int (*end_picture)(void *hw, int slot);
+    int (*vp8_frame)(void *hw, const struct Vp8Job *j);     /* one whole frame; 0 ok, 1 decoded with errors, -1 failed */
 } HwOps;
 
 typedef struct SL {
@@ -102,6 +104,10 @@ int hevc_nal(SL *s, const uint8_t *nal, int len, int64_t pts);
 void hevc_end_picture(SL *s);
 void hevc_reset(SL *s);
 void hevc_free(void *st);
+void *vp8_new(void);
+int vp8_frame(SL *s, const uint8_t *data, int size, int64_t pts);
+void vp8_reset(SL *s);
+void vp8_free(void *st);
 
 /* backends */
 extern const HwOps pmhw_cedar_ops;               /* pmhw-cedard only (GPL): the library uses the client */

@@ -29,7 +29,7 @@ extern "C" {
 
 #define PMHWDEC_VERSION 1
 
-typedef enum { PMHW_CODEC_H264 = 0, PMHW_CODEC_HEVC = 1, PMHW_CODEC_VP9 = 2, PMHW_CODEC_COUNT } PmhwCodec;
+typedef enum { PMHW_CODEC_H264 = 0, PMHW_CODEC_HEVC = 1, PMHW_CODEC_VP9 = 2, PMHW_CODEC_VP8 = 3, PMHW_CODEC_COUNT } PmhwCodec;
 
 /* what the best backend on this device can do for one codec */
 typedef struct PmhwCaps {
@@ -72,7 +72,8 @@ typedef struct PmhwDecoder PmhwDecoder;
 int pmhw_query(PmhwCodec codec, PmhwCaps *caps);
 /* width/height from the container (0 if unknown): only used to refuse too big streams early. NULL = no hardware. */
 PmhwDecoder *pmhw_open(PmhwCodec codec, int width, int height);
-/* one access unit (Annex-B, start codes included, parameter sets may come along); NULL/0 = end of stream */
+/* one access unit (Annex-B, start codes included, parameter sets may come along; VP8: one frame as stored in WebM or
+ * IVF); NULL/0 = end of stream */
 int pmhw_send(PmhwDecoder *dec, const uint8_t *data, int size, int64_t pts);
 /* 1 = picture returned (hand it back with pmhw_put), 0 = none ready */
 int pmhw_get(PmhwDecoder *dec, PmhwPicture *pic);
