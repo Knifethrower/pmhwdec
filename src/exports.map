@@ -1,0 +1,5 @@
+PMHWDEC_1 {
+    global:
+        pmhw_query; pmhw_open; pmhw_send; pmhw_get; pmhw_put; pmhw_flush; pmhw_close; pmhw_backend_name;
+    local: *;
+};
