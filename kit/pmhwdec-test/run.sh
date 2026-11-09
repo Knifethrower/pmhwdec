@@ -33,7 +33,7 @@ ls -l /dev/mpp_service /dev/rkvdec /dev/hevc_service /dev/vpu_service /dev/vpu-s
 for v in /sys/class/video4linux/*; do [ -r "$v/name" ] && echo "$(basename "$v"): $(cat "$v/name")"; done
 
 line "capabilities + self-test"
-PMHWDEC_LOG=1 PMHWDEC_SELFTEST=1 "$K/pmhw-test" -q
+PMHWDEC_LOG=1 PMHWDEC_SELFTEST=1 "$K/pmhwdec-test" -q
 echo "self-test results: $(tr '\n' ';' < "$C" 2>/dev/null)"
 
 line "test clips (every frame compared with FFmpeg's decode)"
@@ -41,7 +41,7 @@ for f in seq_p_cavlc.h264 seq_b_pyramid.h264 seq_720p_temporal.h264 h264_slices.
          hevc_intra.hevc hevc_pb.hevc hevc_pb_wpp.hevc hevc_slices.hevc hevc_720p_10bit.hevc bbb8.hevc bbb10.hevc; do
     c=${f%.*}
     [ -f "$K/clips/$f" ] || continue
-    PMHWDEC_LOG=1 timeout 120 "$K/pmhw-test" "$K/clips/$f" > /tmp/pmhwkit.log 2> /tmp/pmhwkit.err
+    PMHWDEC_LOG=1 timeout 120 "$K/pmhwdec-test" "$K/clips/$f" > /tmp/pmhwkit.log 2> /tmp/pmhwkit.err
     rc=$?
     res=$(grep '^RESULT' /tmp/pmhwkit.log | sed 's/ send_errors.*per frame:/,/')
     [ -n "$res" ] || res="RESULT none (exit code $rc)"

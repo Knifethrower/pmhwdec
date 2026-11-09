@@ -241,7 +241,7 @@ static void free_bufs(Cedar *c)
     buf_free(&c->pinfo); buf_free(&c->neigh); buf_free(&c->deblk); buf_free(&c->intra); buf_free(&c->ep); buf_free(&c->probs);
 }
 
-unsigned pmhw_cedar_gen;            /* pmhw-cedard: tells the client its old picture buffers are gone */
+unsigned pmhw_cedar_gen;            /* pmhwdec-cedard: tells the client its old picture buffers are gone */
 
 static int cedar_configure(void *hw, const Geom *g)
 {

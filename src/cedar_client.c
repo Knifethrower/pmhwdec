@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
-/* "cedar" backend, client side: the Allwinner video engine decoder runs in pmhw-cedard (cedard.c + cedar.c, GPL,
+/* "cedar" backend, client side: the Allwinner video engine decoder runs in pmhwdec-cedard (cedard.c + cedar.c, GPL,
  * shipped next to libpmhwdec), one helper process per decoder; this file only talks cedar_ipc.h to it. Pictures come
  * back as dma-buf fds, mapped here once per buffer (the helper flushes the CPU caches before it hands one over).
  * A helper that dies or does not answer within CD_TIMEOUT_MS ends the decoder with PMHW_UNSUPPORTED, so the caller
@@ -39,7 +39,7 @@ static int helper_path(char *out, size_t n)
 {
     const char *e = getenv("PMHWDEC_CEDARD");
     if (e && *e) { snprintf(out, n, "%s", e); return access(out, X_OK); }
-    /* next to libpmhwdec.so, or next to the program that links libpmhwdec.a (pmhw-test) */
+    /* next to libpmhwdec.so, or next to the program that links libpmhwdec.a (pmhwdec-test) */
     Dl_info info;
     char exe[512];
     const char *where[2] = { dladdr((void *)helper_path, &info) ? info.dli_fname : NULL, NULL };
@@ -48,7 +48,7 @@ static int helper_path(char *out, size_t n)
     for (int i = 0; i < 2; i++) {
         const char *slash = where[i] ? strrchr(where[i], '/') : NULL;
         if (!slash) continue;
-        snprintf(out, n, "%.*s/pmhw-cedard", (int)(slash - where[i]), where[i]);
+        snprintf(out, n, "%.*s/pmhwdec-cedard", (int)(slash - where[i]), where[i]);
         if (access(out, X_OK) == 0) return 0;
     }
     return -1;
@@ -72,7 +72,7 @@ static int start(CC *c)
     char path[512];
     c->sock = -1;
     c->pid = 0;
-    if (helper_path(path, sizeof path)) { LOG("cedar: no pmhw-cedard helper next to libpmhwdec"); return -1; }
+    if (helper_path(path, sizeof path)) { LOG("cedar: no pmhwdec-cedard helper next to libpmhwdec"); return -1; }
     int sv[2];
     if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv)) return -1;
     if (sv[1] == CD_FD) {                             /* dup2() onto itself would keep CLOEXEC */
@@ -83,7 +83,7 @@ static int start(CC *c)
     posix_spawn_file_actions_t fa;
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_adddup2(&fa, sv[1], CD_FD);
-    char *argv[] = { "pmhw-cedard", NULL };
+    char *argv[] = { "pmhwdec-cedard", NULL };
     int r = posix_spawn(&c->pid, path, &fa, NULL, argv, environ);
     posix_spawn_file_actions_destroy(&fa);
     close(sv[1]);
@@ -123,7 +123,7 @@ static int call(CC *c, CdReq *q, const void *payload, int want_reply, CdRep *rep
         struct pollfd pf = { .fd = c->sock, .events = POLLIN };
         int pr = poll(&pf, 1, CD_TIMEOUT_MS);
         if (pr < 0 && errno == EINTR) continue;
-        if (pr != 1) { ERR("cedar: pmhw-cedard did not answer in %d ms", CD_TIMEOUT_MS); goto dead; }
+        if (pr != 1) { ERR("cedar: pmhwdec-cedard did not answer in %d ms", CD_TIMEOUT_MS); goto dead; }
         struct iovec iov = { b + got, sizeof *rep - got };
         union { struct cmsghdr h; char b[CMSG_SPACE(sizeof(int))]; } u;
         struct msghdr m = { .msg_iov = &iov, .msg_iovlen = 1, .msg_control = u.b, .msg_controllen = sizeof u.b };
@@ -140,7 +140,7 @@ static int call(CC *c, CdReq *q, const void *payload, int want_reply, CdRep *rep
     }
     return 0;
 dead:
-    ERR("cedar: lost pmhw-cedard: this stream goes to software");
+    ERR("cedar: lost pmhwdec-cedard: this stream goes to software");
     if (fd_out && *fd_out >= 0) { close(*fd_out); *fd_out = -1; }
     stop(c);
     return -1;

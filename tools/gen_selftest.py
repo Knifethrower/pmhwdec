@@ -116,7 +116,7 @@ def decode(path, depth):
 
 
 def nv12_adler(frame8):
-    """adler32 of the visible NV12 picture (Y rows, then interleaved UV rows), as pmhw-test prints it"""
+    """adler32 of the visible NV12 picture (Y rows, then interleaved UV rows), as pmhwdec-test prints it"""
     y, u, v = frame8
     uv = bytes(x for pair in zip(u, v) for x in pair)
     return zlib.adler32(uv, zlib.adler32(y, 1)) & 0xFFFFFFFF

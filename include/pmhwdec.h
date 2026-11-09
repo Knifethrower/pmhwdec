@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 /* The public API header is MIT so any player, FFmpeg build or port can include it; the library is LGPL-2.1-or-later
- * (the Allwinner decoder runs in a separate GPL helper program, pmhw-cedard). */
+ * (the Allwinner decoder runs in a separate GPL helper program, pmhwdec-cedard). */
 /* pmhwdec: hardware video decoding for PortMaster handhelds.
  *
  * Access units in (Annex-B byte stream, one picture per call), pictures out in display order. Backends are picked

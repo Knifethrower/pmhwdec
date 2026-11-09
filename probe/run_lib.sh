@@ -1,5 +1,5 @@
 #!/bin/sh
-# Device side: pmhw-test (public API only) on every clip in the folder; <clip>.lib.log next to them.
+# Device side: pmhwdec-test (public API only) on every clip in the folder; <clip>.lib.log next to them.
 # Refuses while anything else has /dev/cedar_dev open. Usage: sh run_lib.sh <dir>
 D=${1:-$(dirname "$0")}
 # dArkOS logs in as ark; the decoder nodes may be root-only: rerun as root when sudo needs no password
@@ -11,12 +11,12 @@ done
 # keep the device awake: Knulli's idlewatcher hooks skip dim/suspend while a *.pause file exists here
 PAUSE=/var/run/battery-saver/pmhwdec.pause
 if [ -d /etc/idlewatcher ]; then mkdir -p /var/run/battery-saver && touch "$PAUSE"; trap 'rm -f "$PAUSE"' EXIT INT TERM; fi
-"$D/pmhw-test" -q
+"$D/pmhwdec-test" -q
 for f in seq_p_cavlc.h264 seq_b_pyramid.h264 seq_720p_temporal.h264 h264_slices.h264 bbb_h264.h264 \
          hevc_intra.hevc hevc_pb.hevc hevc_pb_wpp.hevc hevc_slices.hevc hevc_720p_10bit.hevc bbb8.hevc bbb10.hevc; do
     [ -f "$D/$f" ] || continue
     c=${f%.*}
-    PMHWDEC_LOG=1 "$D/pmhw-test" "$D/$f" > "$D/$c.lib.log" 2> "$D/$c.lib.err"
+    PMHWDEC_LOG=1 "$D/pmhwdec-test" "$D/$f" > "$D/$c.lib.log" 2> "$D/$c.lib.err"
     printf "%-20s %s\n" "$c" "$(grep '^RESULT' "$D/$c.lib.log")"
     grep -m2 -vE "^pmhwdec: (using|cedar: engine|cedar: [0-9])" "$D/$c.lib.err" | sed 's/^/    /'
 done

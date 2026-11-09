@@ -9,8 +9,8 @@ Parts and their licenses:
 - src/ (all but the three files below), tools/, kit/, rkmpp/, build.sh: our own code, LGPL-2.1-or-later.
   This is libpmhwdec.so / libpmhwdec.a. Closed programs (a Unity player, say) may load or dynamically link it.
 - include/pmhwdec.h: MIT (see its header), so any program can include it.
-- pmhw-cedard, the Allwinner video engine decoder, is a SEPARATE PROGRAM under the GPL-2.0-or-later (see
-  LICENSE.pmhw-cedard). libpmhwdec starts it as a child process and talks to it over a socket (src/cedar_ipc.h);
+- pmhwdec-cedard, the Allwinner video engine decoder, is a SEPARATE PROGRAM under the GPL-2.0-or-later (see
+  LICENSE.pmhwdec-cedard). libpmhwdec starts it as a child process and talks to it over a socket (src/cedar_ipc.h);
   it does not link it. Its sources:
   - src/cedar.c: decode programming ported from mainline Linux Cedrus (drivers/staging/media/sunxi/cedrus,
     cedrus_h264.c and cedrus_h265.c, GPL-2.0-or-later; Copyright 2013 Jens Kuske, 2018 Paul Kocialkowski / Bootlin).
@@ -27,7 +27,7 @@ Parts and their licenses:
   mainline's register header and stays GPL-2.0 (only).
 
 Before 2026-11-07 the whole library was GPL-2.0-or-later with the Cedrus-derived decoder linked in; that code now
-lives only in pmhw-cedard, and everything else was relicensed by its authors to LGPL-2.1-or-later.
+lives only in pmhwdec-cedard, and everything else was relicensed by its authors to LGPL-2.1-or-later.
 
 ----------------------------------------------------------------------------------------------------------------
 

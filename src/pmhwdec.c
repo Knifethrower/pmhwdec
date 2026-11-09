@@ -14,7 +14,7 @@ struct PmhwDecoder {
 static const Backend *backends(int i)
 {
     switch (i) {
-    case 0: return &pmhw_cedar_client_backend;                 /* Allwinner, vendor kernels (pmhw-cedard helper) */
+    case 0: return &pmhw_cedar_client_backend;                 /* Allwinner, vendor kernels (pmhwdec-cedard helper) */
     case 1: return &pmhw_rkmpp_backend;                        /* Rockchip, vendor kernels (MPP) */
     case 2: return pmhw_stateless_backend(&pmhw_v4l2req_ops);  /* mainline V4L2 stateless (ROCKNIX) */
     case 3: return &pmhw_v4l2m2m_backend;                      /* mainline V4L2 stateful: Qualcomm, Amlogic */

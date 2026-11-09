@@ -169,8 +169,8 @@ RG Cube XX (H700), engine time per frame (CPU sleeps in the IRQ wait meanwhile):
 Layout: `include/pmhwdec.h` (public API), `src/pmhwdec.c` (backend pick), `src/stateless.c` (frame store, output
 reorder queue, AGAIN protocol, configure/caps checks), `src/h264.c` + `src/hevc.c` (codec layers: parsing, POC,
 reference marking, lists; jobs shaped like the V4L2 stateless controls so a v4l2req backend can reuse them),
-`src/cedar.c` (Allwinner backend), `src/cedrus_regs.h` (mainline, verbatim), `tools/pmhw_test.c` (public API only),
-`build.sh` (aarch64 .so/.a + pmhw-test; only the 8 pmhw_* symbols exported).
+`src/cedar.c` (Allwinner backend), `src/cedrus_regs.h` (mainline, verbatim), `tools/pmhwdec_test.c` (public API only),
+`build.sh` (aarch64 .so/.a + pmhwdec-test; only the 8 pmhw_* symbols exported).
 - Two backend kinds: stream backends (rkmpp: data in, pictures out) and the stateless core driving HwOps (cedar now,
   v4l2req later for ROCKNIX: cedrus/hantro/rkvdec).
 - New vs the probes: several SPS/PPS ids, H.264 VUI max_num_reorder_frames, POC type 1, MMCO 5, multiple slices per
@@ -207,7 +207,7 @@ reference marking, lists; jobs shaped like the V4L2 stateless controls so a v4l2
   (H700, schedutil): 1080p 14.45 vs 2.56 ms, 720p 6.41 vs 1.12 ms. R36S 2GB (A35, 1008 MHz): 1080p ~12.7 vs 1.85,
   720p 5.8 vs 1.1. The cache flush and the GPU upload both routes pay when copying are not included.
 
-RG Cube XX (H700), pmhw-test through the public API, cached buffers (results/cubexx/lib):
+RG Cube XX (H700), pmhwdec-test through the public API, cached buffers (results/cubexx/lib):
 
 | Clip | vs FFmpeg (output order) | send (decode) per frame | copy-out (1080p uncached was 32 ms) |
 |--|--|--|--|
@@ -231,7 +231,7 @@ already showed "[cedar] standby suspend/resume"). Not an engine freeze. Device t
 run, then the remaining Smart Pro clips can be rerun.
 
 ## rkmpp backend (2026-10-30): **bit-exact on the RG552 (RK3399, AmberELEC 4.4)**
-| Clip (RG552, pmhw-test through the public API) | vs FFmpeg |
+| Clip (RG552, pmhwdec-test through the public API) | vs FFmpeg |
 |--|--|
 | seq_p_cavlc, seq_b_pyramid, seq_720p_temporal, h264_slices | 60/60, 60/60, 30/30, 60/60 identical |
 | BBB H.264 1080p | **300/300** |
@@ -239,7 +239,7 @@ run, then the remaining Smart Pro clips can be rerun.
 | BBB HEVC 1080p | **300/300** |
 | HEVC 720p Main 10, BBB Main 10 | PMHW_UNSUPPORTED (MPP output format 0x1 = NV15, stride 1600 / 2816 bytes) |
 
-Throughput (`pmhw-test -s`: send/get only, no checksum/copy; MPP decodes in its own thread): **BBB H.264 1080p 236 fps,
+Throughput (`pmhwdec-test -s`: send/get only, no checksum/copy; MPP decodes in its own thread): **BBB H.264 1080p 236 fps,
 BBB HEVC 1080p 482 fps**; CPU ~94% idle in the snapshot after. Copy-out from the cached DRM buffers 1.2-1.3 ms/1080p.
 Two fixes on the way:
 - MPP's link misses libm (`undefined symbol: cos` on AmberELEC, glibc 2.38): build_mpp.sh links -lm.
@@ -411,7 +411,7 @@ on the `next` branch, checked 2026-10-30, user's point):
   streams on RK3399/RK3566 (MPP's default); -Oz + thin LTO + ICF was smaller stripped but gzipped bigger.
   R36S 2GB (RK3326, dArkOS) kit run with this build: self-test OK, all 10 8-bit clips bit-exact, per-frame send/get
   times equal to the 1,089,984 build run right after (e.g. BBB H.264 send 4.48 vs 4.49 ms, get 0.705 vs 0.712 ms).
-- `src/rkmpp.c`: stream backend. dlopen()s librockchip_mpp (next to libpmhwdec / pmhw-test first, then the system),
+- `src/rkmpp.c`: stream backend. dlopen()s librockchip_mpp (next to libpmhwdec / pmhwdec-test first, then the system),
   only the needed symbols (`*_with_caller` / `*_f` forms of the buffer macros). Offered when a Rockchip decoder node
   exists (/dev/mpp_service, rkvdec, hevc_service, vpu_service, vpu-service) and mpp_check_support_format() agrees.
   Whole access units (split mode 0), non-blocking get, MPP_ERR_BUFFER_FULL -> PMHW_AGAIN, EOS waits up to 2 s for
@@ -427,10 +427,10 @@ caps in init (refuse = the player falls back to software; mid-stream it could no
 copied from the (cached) planes, PMHW_AGAIN handled by keeping the packet, PMHW_UNSUPPORTED mid-stream =
 AVERROR_PATCHWELCOME, corrupt pictures flagged. Env PM_HWDEC=0 disables.
 Jellyfin port wiring: tools-src/pmhw/ (copies of the glue + pmhwdec.h), build_libmpv.sh `ffmpeg_add_pmhw` (FFmpeg
-7.1.2), release/jellyfinmpvshim/pmhw_setup.sh (pmhw-test -q -> PM_HW_VD / PM_HW_HEVC10, turns Transcode HEVC off once),
+7.1.2), release/jellyfinmpvshim/pmhw_setup.sh (pmhwdec-test -q -> PM_HW_VD / PM_HW_HEVC10, turns Transcode HEVC off once),
 launcher sources it and only falls back to cedar_fetch.sh (Allwinner blobs) when it found nothing, run.py uses
 PM_HW_VD and keeps the "10-bit only for H.264" profile tweak only where HEVC 10-bit decodes, stage_release.sh stages
-libs/pmhw (libpmhwdec.so, pmhw-test, librockchip_mpp.so) + LICENSE.pmhwdec / LICENSE.mpp + src/pmhw.
+libs/pmhw (libpmhwdec.so, pmhwdec-test, librockchip_mpp.so) + LICENSE.pmhwdec / LICENSE.mpp + src/pmhw.
 Test (Jellyfin pctest/device_pmhw.sh: new libmpv + libpmhwdec from /tmp, installed port untouched), RG Cube XX:
 pmhw_setup -> `hevc_pmhw,h264_pmhw,` + HEVC10; BBB HEVC 10-bit 1080p and H.264 1080p MKVs (5.1 AC-3): mpv picks the
 pmhw decoders, **0 decoder drops, 30 fps, backward seek OK**; frame grabs clean (results/cubexx/mpv).
@@ -440,8 +440,8 @@ pmhw decoders, **0 decoder drops, 30 fps, backward seek OK**; frame grabs clean 
 - **Why:** a GPL library can't be loaded into a closed program (portmaster-unity's Unity players). Only src/cedar.c
   derives from Cedrus, so the split was made there.
 - **What changed:** everything else (core, parsers, self-test, rkmpp, v4l2req, v4l2m2m, tools) is our own code and
-  went to LGPL-2.1-or-later. cedar.c + ve_regs.h + cedard.c build `pmhw-cedard` (GPL-2.0-or-later,
-  LICENSE.pmhw-cedard), a helper program the library starts next to itself.
+  went to LGPL-2.1-or-later. cedar.c + ve_regs.h + cedard.c build `pmhwdec-cedard` (GPL-2.0-or-later,
+  LICENSE.pmhwdec-cedard), a helper program the library starts next to itself.
 - **Protocol (src/cedar_client.c <-> src/cedard.c, src/cedar_ipc.h):**
   - One helper per decoder, over a socketpair on fd 3 (posix_spawn).
   - Access units go over as bytes. Pictures come back as ION dma-buf fds (SCM_RIGHTS), mapped once per buffer
@@ -476,7 +476,7 @@ bit and refuses NV15 there with PMHW_UNSUPPORTED (checked on the R36S 2GB).
 DEC_CMD_STOP drain, OUTPUT restart on seek, pts in buffer timestamps; Venus/Iris luma padded to 32 lines; cached
 dma_heap capture when the device has an iommu_group, else MMAP). Guards: no capture setup within 3 s of being fed ->
 PMHW_UNSUPPORTED (Iris refuses 10-bit silently: dmesg "unsupported content, bit depth: 20002"); no progress 5 s ->
-PMHW_ERROR. pmhw-test got a stuck guard. Order in pmhwdec.c: cedar, rkmpp, v4l2req, v4l2m2m.
+PMHW_ERROR. pmhwdec-test got a stuck guard. Order in pmhwdec.c: cedar, rkmpp, v4l2req, v4l2m2m.
 | RP5 | result |
 |--|--|
 | HEVC intra / P/B / WPP / 4 slices | **all bit-exact** (10, 60, 60, 60) |
@@ -506,7 +506,7 @@ itself instead of being trusted blind:
   (H.264, HEVC OK; 10-bit not tried, caps say 8). INJECT=10 on both: every codec "no hardware" with the reason
   logged. The clip suite after it has the same checksums as before on both.
 - **Tester kit** (tools/make_kit.sh → out/pmhwdec-test-kit.zip, 14 MB): "PMHWDEC Test.sh" + pmhwdec-test/
-  (pmhw-test with the library linked in, MPP, 12 clips + FFmpeg framecrc references, run.sh). It writes
+  (pmhwdec-test with the library linked in, MPP, 12 clips + FFmpeg framecrc references, run.sh). It writes
   ports/pmhwdec-report.txt with model, compatible, kernel, firmware, decoder device files, V4L2 device names, the
   self-test, per-clip speed and frame-by-frame exactness (10-bit: self-test only), and decoder kernel messages.
   Root via sudo -n where needed (dArkOS), Knulli keep-awake, nothing left behind. Dry run over SSH on the RG Cube

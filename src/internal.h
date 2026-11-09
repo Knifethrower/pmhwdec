@@ -110,7 +110,7 @@ void vp8_reset(SL *s);
 void vp8_free(void *st);
 
 /* backends */
-extern const HwOps pmhw_cedar_ops;               /* pmhw-cedard only (GPL): the library uses the client */
+extern const HwOps pmhw_cedar_ops;               /* pmhwdec-cedard only (GPL): the library uses the client */
 extern const Backend pmhw_cedar_client_backend;
 extern const HwOps pmhw_v4l2req_ops;
 extern const Backend pmhw_rkmpp_backend;

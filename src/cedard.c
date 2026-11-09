@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* pmhw-cedard: the Allwinner video engine decoder (cedar.c, ported from Linux Cedrus, GPL) as its own program.
+/* pmhwdec-cedard: the Allwinner video engine decoder (cedar.c, ported from Linux Cedrus, GPL) as its own program.
  * libpmhwdec (LGPL) starts one per decoder with a socketpair on fd 3 (CD_FD) and talks cedar_ipc.h to it; the
  * helper runs the shared stateless core (stateless.c, h264.c, hevc.c) over cedar.c's HwOps and hands pictures back
  * as dma-buf fds. It exits when the socket closes, so a crashed or killed caller leaves nothing behind. */
@@ -65,7 +65,7 @@ int main(void)
     uint32_t cap = 0;
     CdReq q;
     while (read_full(fd, &q, sizeof q) == 0) {
-        if (q.version != CD_VERSION) { ERR("pmhw-cedard: protocol %u, want %u", q.version, CD_VERSION); break; }
+        if (q.version != CD_VERSION) { ERR("pmhwdec-cedard: protocol %u, want %u", q.version, CD_VERSION); break; }
         CdRep rep = { 0 };
         int pass = -1;
         switch (q.op) {
@@ -83,7 +83,7 @@ int main(void)
         case CD_SEND:
             if (q.len > cap) {
                 uint8_t *n = realloc(buf, q.len);
-                if (!n) { ERR("pmhw-cedard: out of memory (%u bytes)", q.len); goto out; }
+                if (!n) { ERR("pmhwdec-cedard: out of memory (%u bytes)", q.len); goto out; }
                 buf = n; cap = q.len;
             }
             if (q.len && read_full(fd, buf, q.len)) goto out;
@@ -111,7 +111,7 @@ int main(void)
             if (ctx) be->flush(ctx);
             break;
         default:
-            ERR("pmhw-cedard: unknown request %u", q.op);
+            ERR("pmhwdec-cedard: unknown request %u", q.op);
             goto out;
         }
         if (send_rep(fd, &rep, pass)) break;

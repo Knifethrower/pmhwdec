@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
-/* pmhw-test: decodes an Annex-B H.264 / HEVC file or an IVF VP8 file through the public pmhwdec API only.
+/* pmhwdec-test: decodes an Annex-B H.264 / HEVC file or an IVF VP8 file through the public pmhwdec API only.
  * Prints one line per picture in OUTPUT order: "FRAME <n> 0 <n> <pts> ... adler=<hex>" (FFmpeg framecrc's adler32 of
  * the visible NV12), so `ffmpeg -i f -pix_fmt nv12 -f framecrc` compares line by line (probe/compare_crc.py).
- * Usage: pmhw-test [-c h264|hevc] [-n max_access_units] [-o first_frames.nv12 -d count] file
- *        pmhw-test -q      (capabilities only) */
+ * Usage: pmhwdec-test [-c h264|hevc] [-n max_access_units] [-o first_frames.nv12 -d count] file
+ *        pmhwdec-test -q      (capabilities only) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

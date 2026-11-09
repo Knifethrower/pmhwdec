@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
-/* The protocol between libpmhwdec's "cedar" backend (cedar_client.c, in the caller's process) and pmhw-cedard
+/* The protocol between libpmhwdec's "cedar" backend (cedar_client.c, in the caller's process) and pmhwdec-cedard
  * (cedard.c + cedar.c, a separate GPL program that owns /dev/cedar_dev). One helper per decoder, over a
  * socketpair: every request gets one reply, except PUT. Pictures cross as dma-buf fds (SCM_RIGHTS on GET replies);
  * the client maps each buffer once and keeps the mapping. Keeping the Cedrus-derived code in its own process lets
@@ -32,7 +32,7 @@ typedef struct CdRep {
     int64_t pts;
 } CdRep;
 
-/* the same layout on armhf and aarch64: a 32-bit libpmhwdec starts the 64-bit pmhw-cedard on a 64-bit kernel (the
+/* the same layout on armhf and aarch64: a 32-bit libpmhwdec starts the 64-bit pmhwdec-cedard on a 64-bit kernel (the
  * vendor video driver and ION then see a native caller, no 32-bit ioctl translation) */
 #include <stddef.h>
 _Static_assert(sizeof(CdReq) == 40 && offsetof(CdReq, pts) == 24 && offsetof(CdReq, len) == 32, "CdReq layout");

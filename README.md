@@ -6,7 +6,7 @@ It picks the right backend at run time and checks it with a short self-test befo
 
 | Backend | Where | Driver it talks to |
 |---|---|---|
-| `cedar` | Allwinner H616 / H618 / H700 / A133 on vendor kernels (Knulli, muOS) | the vendor `/dev/cedar_dev` + ION, through the `pmhw-cedard` helper (no Allwinner userspace code or blobs) |
+| `cedar` | Allwinner H616 / H618 / H700 / A133 on vendor kernels (Knulli, muOS) | the vendor `/dev/cedar_dev` + ION, through the `pmhwdec-cedard` helper (no Allwinner userspace code or blobs) |
 | `rkmpp` | Rockchip on vendor (BSP) kernels (ArkOS / dArkOS, AmberELEC) | Rockchip MPP, a trimmed build shipped next to the library |
 | `v4l2req` | mainline V4L2 stateless decoders (ROCKNIX: hantro, rkvdec, Cedrus) | `/dev/videoN` + media request API, frame- and slice-based |
 | `v4l2m2m` | mainline V4L2 stateful decoders (e.g. Qualcomm on ROCKNIX) | `/dev/videoN` |
@@ -32,7 +32,7 @@ frames, token partitions and segments; Big Buck Bunny 1080p):
 | RG34XX SP | H700, ROCKNIX with Cedrus test modules | v4l2req (Cedrus, slice-based) | yes | yes | yes | not run |
 | Retroid Pocket 5 | SM8250, ROCKNIX | v4l2m2m | yes (rare off-by-one samples from the firmware) | yes | no | no (not wired up) |
 
-32-bit (armhf) programs use the armhf library; on Allwinner it starts the aarch64 `pmhw-cedard`, since
+32-bit (armhf) programs use the armhf library; on Allwinner it starts the aarch64 `pmhwdec-cedard`, since
 these handhelds run 64-bit kernels (checked on the RG Cube XX and, with armhf MPP, the R36S).
 
 Chips without a test device are covered by the start-up self-test: a few tiny embedded clips are decoded
@@ -61,10 +61,11 @@ pmhw_send(d, NULL, 0, 0); drain();                             // end of stream
   at run time and fall back to FFmpeg's own decoders inside.
 - **portmaster-unity**: its media runtime loads `libpmhwdec.so.1` (`UM_PMHW=<path>`) ahead of its software
   decoders, so Unity games' videos play on the hardware where there is one.
-- **Directly**: link or `dlopen` `libpmhwdec.so.1`; ship `pmhw-cedard` (Allwinner) and `librockchip_mpp.so`
+- **Directly**: link or `dlopen` `libpmhwdec.so.1`; ship `pmhwdec-cedard` (Allwinner) and `librockchip_mpp.so`
   (Rockchip) next to it.
 - On ArkOS / dArkOS the Rockchip decoder nodes are root-only while ports run as `ark`: a launcher should
-  `$ESUDO chgrp video` + `chmod 660` `/dev/vpu_service`, `/dev/hevc_service`, `/dev/rkvdec`, `/dev/mpp_service`.
+  `$ESUDO chgrp video` + `chmod 660` `/dev/vpu_service`, `/dev/hevc_service`, `/dev/rkvdec`, `/dev/mpp_service`,
+  recording each node's group and mode first and restoring them on exit, so the system is left as it was found.
 
 ## Building
 
@@ -77,8 +78,8 @@ bash rkmpp/build_mpp.sh                # Rockchip MPP 1.1.0, trimmed (~540 KB): 
 ARCH=armhf bash rkmpp/build_mpp.sh
 ```
 
-`build.sh` makes `libpmhwdec.so` (soname `libpmhwdec.so.1`), `libpmhwdec.a`, `pmhw-cedard` (aarch64 only)
-and `pmhw-test`. `tools/make_kit.sh` packs a tester kit (`kit/`): a PortMaster "port" that runs the clips and
+`build.sh` makes `libpmhwdec.so` (soname `libpmhwdec.so.1`), `libpmhwdec.a`, `pmhwdec-cedard` (aarch64 only)
+and `pmhwdec-test`. `tools/make_kit.sh` packs a tester kit (`kit/`): a PortMaster "port" that runs the clips and
 the self-test on a handheld and writes `ports/pmhwdec-report.txt`.
 
 `probe/` holds the first experiments that drove the Allwinner engine from userspace; `DESIGN.md` is the
@@ -87,7 +88,7 @@ working log (chips, drivers, measurements, decisions).
 ## Licenses
 
 - **libpmhwdec** (everything not listed below): LGPL-2.1-or-later (`LICENSE`). Closed programs may load it.
-- **pmhw-cedard**, the Allwinner decoder, is a separate GPL-2.0-or-later program (`LICENSE.pmhw-cedard`):
+- **pmhwdec-cedard**, the Allwinner decoder, is a separate GPL-2.0-or-later program (`LICENSE.pmhwdec-cedard`):
   its register programming is ported from mainline Linux's Cedrus driver (Jens Kuske, Paul Kocialkowski /
   Bootlin). The library starts it as a helper process and talks to it over a socket (`src/cedar_ipc.h`);
   it never links it. `src/cedar.c`, `src/cedard.c`, `src/ve_regs.h`, `tools/gen_ve_regs.py` and the C
@@ -95,5 +96,5 @@ working log (chips, drivers, measurements, decisions).
 - **`include/pmhwdec.h`**: MIT.
 - **Rockchip MPP** (built by `rkmpp/build_mpp.sh`): Apache-2.0 / MIT, its own license file.
 - `src/vp8_tables.h`: VP8's fixed probability tables from libvpx, BSD-3-Clause (`licenses/LICENSE.libvpx.txt`).
-- `src/cedar_vp8_table.h` (from mainline Cedrus) is GPL-2.0-or-later and only built into pmhw-cedard.
+- `src/cedar_vp8_table.h` (from mainline Cedrus) is GPL-2.0-or-later and only built into pmhwdec-cedard.
 - `src/uapi/linux/`: Linux UAPI headers (GPL-2.0 WITH Linux-syscall-note).

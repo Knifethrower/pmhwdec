@@ -1,7 +1,7 @@
-pmhw-cedard - the Allwinner video engine decoder helper of libpmhwdec
+pmhwdec-cedard - the Allwinner video engine decoder helper of libpmhwdec
 Copyright (C) 2026 Knifethrower and contributors
 
-pmhw-cedard is free software; you can redistribute it and/or modify it under the terms of the GNU General Public
+pmhwdec-cedard is free software; you can redistribute it and/or modify it under the terms of the GNU General Public
 License as published by the Free Software Foundation; either version 2 of the License, or (at your option) any
 later version. The full text of version 2 follows below.
 
@@ -9,7 +9,7 @@ Sources: src/cedard.c, src/cedar.c, src/ve_regs.h (GPL-2.0-or-later) and libpmhw
 src/hevc.c with their headers (LGPL-2.1-or-later, used here under the GPL as the LGPL allows).
 src/cedar.c holds decode programming ported from mainline Linux Cedrus (drivers/staging/media/sunxi/cedrus,
 cedrus_h264.c and cedrus_h265.c, GPL-2.0-or-later; Copyright 2013 Jens Kuske, 2018 Paul Kocialkowski / Bootlin).
-Programs using libpmhwdec run pmhw-cedard as a separate process; see LICENSE.
+Programs using libpmhwdec run pmhwdec-cedard as a separate process; see LICENSE.
 
 ----------------------------------------------------------------------------------------------------------------
 
