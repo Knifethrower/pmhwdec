@@ -201,16 +201,16 @@ static void dev_put(void)
 }
 
 /* ---------------- capabilities ---------------- */
-static int cedar_query(PmhwCodec codec, PmhwCaps *caps)
+static int cedar_query(PmhwdecCodec codec, PmhwdecCaps *caps)
 {
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC && codec != PMHW_CODEC_VP8) return -1;
+    if (codec != PMHWDEC_CODEC_H264 && codec != PMHWDEC_CODEC_HEVC && codec != PMHWDEC_CODEC_VP8) return -1;
     if (access("/dev/cedar_dev", R_OK | W_OK) || access("/dev/ion", R_OK | W_OK)) return -1;
     if (!ip_version) { if (dev_get()) return -1; dev_put(); }
     /* Cedrus H6 family limits; the VE generation check: 0xf0 reads 0 and the IP sits in 0xe0 on these chips */
     if (ip_version < 0x30000) return -1;
     caps->max_width = 4096;
     caps->max_height = 2304;
-    caps->max_bit_depth = codec == PMHW_CODEC_HEVC && ip_version == VE_IP_H616 ? 10 : 8;
+    caps->max_bit_depth = codec == PMHWDEC_CODEC_HEVC && ip_version == VE_IP_H616 ? 10 : 8;
     caps->backend = "cedar";
     return 0;
 }
@@ -219,14 +219,14 @@ static int cedar_query(PmhwCodec codec, PmhwCaps *caps)
 typedef struct Pic { Buf mem; uint32_t luma, chroma, mv, mv2; int cached; } Pic;
 
 typedef struct Cedar {
-    PmhwCodec codec;
+    PmhwdecCodec codec;
     Geom g;
     Pic pic[MAX_SLOTS];
     Buf bs, pinfo, neigh, deblk, intra, ep, probs;
     int vp8_last_simple, vp8_last_p, vp8_last_sharpness;     /* the loop filter settings of the last filtered frame */
 } Cedar;
 
-static void *cedar_open(PmhwCodec codec)
+static void *cedar_open(PmhwdecCodec codec)
 {
     if (dev_get()) return NULL;
     Cedar *c = calloc(1, sizeof *c);
@@ -241,16 +241,16 @@ static void free_bufs(Cedar *c)
     buf_free(&c->pinfo); buf_free(&c->neigh); buf_free(&c->deblk); buf_free(&c->intra); buf_free(&c->ep); buf_free(&c->probs);
 }
 
-unsigned pmhw_cedar_gen;            /* pmhwdec-cedard: tells the client its old picture buffers are gone */
+unsigned pmhwdec_cedar_gen;            /* pmhwdec-cedard: tells the client its old picture buffers are gone */
 
 static int cedar_configure(void *hw, const Geom *g)
 {
     Cedar *c = hw;
     free_bufs(c);
-    pmhw_cedar_gen++;
+    pmhwdec_cedar_gen++;
     c->g = *g;
     int nv12 = g->stride * g->coded_h * 3 / 2, extra = 0, mv = 0;
-    if (g->codec == PMHW_CODEC_H264) {
+    if (g->codec == PMHWDEC_CODEC_H264) {
         int field = DIV_ROUND_UP(g->width, 16) * DIV_ROUND_UP(g->height, 16) * 16;
         if (!g->h264_direct_8x8) field *= 2;
         if (!g->h264_frame_mbs_only) field *= 2;
@@ -259,7 +259,7 @@ static int cedar_configure(void *hw, const Geom *g)
         if (pinfo < 130 * 1024) pinfo = 130 * 1024;
         if (buf_alloc(&c->pinfo, pinfo) || buf_alloc(&c->neigh, H264_NEIGHBOR_INFO_SIZE)) goto fail;
         if (g->width > 2048 && (buf_alloc(&c->deblk, ALIGN(g->width, 32) * 12) || buf_alloc(&c->intra, ALIGN(g->width, 64) * 5 * 2))) goto fail;
-    } else if (g->codec == PMHW_CODEC_VP8) {
+    } else if (g->codec == PMHWDEC_CODEC_VP8) {
         if (buf_alloc(&c->probs, VP8_ENTROPY_PROBS_SIZE)) goto fail;
         memset(c->probs.cpu, 0, VP8_ENTROPY_PROBS_SIZE);
         memcpy(c->probs.cpu + 2048, cedar_vp8_prob_init, sizeof cedar_vp8_prob_init);
@@ -752,7 +752,7 @@ static int cedar_vp8_frame(void *hw, const Vp8Job *j)
 }
 
 /* ---------------- pictures out ---------------- */
-static void cedar_export(void *hw, int slot, PmhwPicture *pic)
+static void cedar_export(void *hw, int slot, PmhwdecPicture *pic)
 {
     Cedar *c = hw;
     Pic *p = &c->pic[slot];
@@ -767,7 +767,7 @@ static void cedar_export(void *hw, int slot, PmhwPicture *pic)
         (void)*(volatile const uint8_t *)(p->mem.cpu + len - 1);
         cache_flush(p->mem.cpu, len);
     }
-    pic->format = PMHW_FMT_NV12;
+    pic->format = PMHWDEC_FMT_NV12;
     pic->plane[0] = p->mem.cpu;
     pic->plane[1] = p->mem.cpu + c->g.stride * c->g.coded_h;
     pic->stride[0] = pic->stride[1] = c->g.stride;
@@ -788,6 +788,6 @@ static void cedar_close(void *hw)
     dev_put();
 }
 
-const HwOps pmhw_cedar_ops = {
+const HwOps pmhwdec_cedar_ops = {
     "cedar", cedar_query, cedar_open, cedar_configure, cedar_h264_slice, cedar_hevc_slice, cedar_export, cedar_close, NULL, cedar_vp8_frame,
 };

@@ -161,7 +161,7 @@ def main():
             out.append(carray(f"st_{name}_means", means))
             out.append(f"static const uint32_t st_{name}_adler[{N}] = {{ "
                        + ", ".join(f"0x{a:08x}" for a in adlers) + " };")
-            table.append(f"    {{ \"{name}\", PMHW_CODEC_{codec}, {depth}, st_{name}_data, st_{name}_au, "
+            table.append(f"    {{ \"{name}\", PMHWDEC_CODEC_{codec}, {depth}, st_{name}_data, st_{name}_au, "
                          f"{len(aus)}, st_{name}_means, st_{name}_adler }},")
             print(f"{name}: {len(data)} bytes, {len(aus)} access units", file=sys.stderr)
     out.append("static const struct StClip { const char *name; int codec, depth; const uint8_t *data; "

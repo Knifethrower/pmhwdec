@@ -327,7 +327,7 @@ static int compute_poc(H264State *h, const H264Sps *sps, const H264Slice *sl, in
 static void geometry(const H264Sps *sps, int reorder, int dec_buf, Geom *g, int *reorder_out)
 {
     memset(g, 0, sizeof *g);
-    g->codec = PMHW_CODEC_H264;
+    g->codec = PMHWDEC_CODEC_H264;
     g->width = sps->width_mbs * 16;
     g->height = sps->height_map_units * 16;
     g->stride = ALIGN(g->width, 16);
@@ -353,43 +353,43 @@ int h264_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
 {
     H264State *h = s->codec_state;
     int t = nal[0] & 0x1f;
-    if (t != 1 && t != 5 && t != 7 && t != 8) return PMHW_OK;
+    if (t != 1 && t != 5 && t != 7 && t != 8) return PMHWDEC_OK;
     int n = sl_unescape(s, nal, len);
-    if (n < 0) return PMHW_ERROR;
+    if (n < 0) return PMHWDEC_ERROR;
     Bits b = { s->rbsp, n, 8 };
     if (t == 7) {
         H264Sps tmp;
         int ro, db, id = parse_sps(&b, &tmp, &ro, &db);
-        if (id < 0) return id == -2 ? PMHW_UNSUPPORTED : PMHW_ERROR;
-        if (!h->sps[id] && !(h->sps[id] = malloc(sizeof tmp))) return PMHW_ERROR;
+        if (id < 0) return id == -2 ? PMHWDEC_UNSUPPORTED : PMHWDEC_ERROR;
+        if (!h->sps[id] && !(h->sps[id] = malloc(sizeof tmp))) return PMHWDEC_ERROR;
         *h->sps[id] = tmp;
         h->reorder_vui[id] = ro; h->dec_buffering[id] = db;
-        return PMHW_OK;
+        return PMHWDEC_OK;
     }
     if (t == 8) {
         H264Pps tmp;
         int id = parse_pps(&b, &tmp, h->sps);
-        if (id < 0) return id == -2 ? PMHW_UNSUPPORTED : PMHW_ERROR;
-        if (!h->pps[id] && !(h->pps[id] = malloc(sizeof tmp))) return PMHW_ERROR;
+        if (id < 0) return id == -2 ? PMHWDEC_UNSUPPORTED : PMHWDEC_ERROR;
+        if (!h->pps[id] && !(h->pps[id] = malloc(sizeof tmp))) return PMHWDEC_ERROR;
         *h->pps[id] = tmp;
-        return PMHW_OK;
+        return PMHWDEC_OK;
     }
     b.pos = 0;
     H264Slice sl;
     const H264Sps *sps; const H264Pps *pps;
-    if (parse_slice(&b, h, &sl, &sps, &pps)) return PMHW_ERROR;
+    if (parse_slice(&b, h, &sl, &sps, &pps)) return PMHWDEC_ERROR;
     if (sl.first_mb == 0) {
         if (s->cur >= 0) h264_end_picture(s);
         h->skipping = 0;
-        if (s->need_key && !sl.idr && sl.type != H264_I) { h->skipping = 1; return PMHW_OK; }
+        if (s->need_key && !sl.idr && sl.type != H264_I) { h->skipping = 1; return PMHWDEC_OK; }
         Geom g;
         int reorder, sps_id = pps->sps_id;
         geometry(sps, h->reorder_vui[sps_id], h->dec_buffering[sps_id], &g, &reorder);
         int r = sl_configure(s, &g, reorder);
-        if (r != PMHW_OK) return r;
+        if (r != PMHWDEC_OK) return r;
         if (sl.idr) { for (int i = 0; i < s->nslots; i++) s->slot[i].ref = 0; }
         int cur = sl_free_slot(s);
-        if (cur < 0) { s->bump = 1; return PMHW_AGAIN; }
+        if (cur < 0) { s->bump = 1; return PMHWDEC_AGAIN; }
         /* nothing below can ask for a resend: commit the picture */
         if (sl.idr) s->epoch++;
         s->need_key = 0;
@@ -402,16 +402,16 @@ int h264_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
         Slot *c = &s->slot[cur];
         c->poc = h->cur_poc; c->frame_num = sl.frame_num; c->pts = pts; c->corrupt = 0; c->ref = 0;
     } else if (h->skipping || s->cur < 0) {
-        return PMHW_OK;
+        return PMHWDEC_OK;
     }
     H264Job j = { .sps = sps, .pps = pps, .sl = &sl, .slots = s->slot, .nslots = s->nslots, .cur = s->cur,
                   .cur_poc = h->cur_poc, .first_slice = sl.first_mb == 0, .nal = nal, .nal_len = len };
     int m = build_lists(s, sps, &sl, h->cur_poc, j.list, j.len);
-    if (m < 0) { s->slot[s->cur].corrupt = 1; return PMHW_ERROR; }
+    if (m < 0) { s->slot[s->cur].corrupt = 1; return PMHWDEC_ERROR; }
     if (m) s->slot[s->cur].corrupt = 1;
     int r = s->hw->h264_slice(s->hwctx, &j);
     if (r) s->slot[s->cur].corrupt = 1;
-    return r < 0 ? PMHW_ERROR : PMHW_OK;
+    return r < 0 ? PMHWDEC_ERROR : PMHWDEC_OK;
 }
 
 /* 8.2.5 marking, then into the output queue */

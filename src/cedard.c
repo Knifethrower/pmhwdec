@@ -11,12 +11,12 @@
 #include "internal.h"
 #include "cedar_ipc.h"
 
-int pmhw_log_on;
+int pmhwdec_log_on;
 static int max_depth = 8;
-extern unsigned pmhw_cedar_gen;
+extern unsigned pmhwdec_cedar_gen;
 
 /* the client ran the self-test: it tells us at OPEN how deep we may go */
-int pmhw_selftest_depth_allowed(const char *backend, PmhwCodec codec, int depth)
+int pmhwdec_selftest_depth_allowed(const char *backend, PmhwdecCodec codec, int depth)
 {
     (void)backend; (void)codec;
     return depth <= max_depth;
@@ -57,8 +57,8 @@ static int send_rep(int fd, const CdRep *rep, int pass_fd)
 int main(void)
 {
     const char *l = getenv("PMHWDEC_LOG");
-    pmhw_log_on = l && *l && strcmp(l, "0");
-    const Backend *be = pmhw_stateless_backend(&pmhw_cedar_ops);
+    pmhwdec_log_on = l && *l && strcmp(l, "0");
+    const Backend *be = pmhwdec_stateless_backend(&pmhwdec_cedar_ops);
     int fd = CD_FD;
     void *ctx = NULL;
     uint8_t *buf = NULL;
@@ -70,14 +70,14 @@ int main(void)
         int pass = -1;
         switch (q.op) {
         case CD_QUERY: {
-            PmhwCaps caps;
-            rep.status = be->query((PmhwCodec)q.codec, &caps);
+            PmhwdecCaps caps;
+            rep.status = be->query((PmhwdecCodec)q.codec, &caps);
             if (!rep.status) { rep.max_width = caps.max_width; rep.max_height = caps.max_height; rep.max_bit_depth = caps.max_bit_depth; }
             break;
         }
         case CD_OPEN:
             max_depth = q.max_depth > 8 ? q.max_depth : 8;
-            if (!ctx) ctx = be->open((PmhwCodec)q.codec, q.width, q.height);
+            if (!ctx) ctx = be->open((PmhwdecCodec)q.codec, q.width, q.height);
             rep.status = ctx ? 0 : -1;
             break;
         case CD_SEND:
@@ -87,10 +87,10 @@ int main(void)
                 buf = n; cap = q.len;
             }
             if (q.len && read_full(fd, buf, q.len)) goto out;
-            rep.status = ctx ? be->send(ctx, q.len ? buf : NULL, (int)q.len, q.pts) : PMHW_ERROR;
+            rep.status = ctx ? be->send(ctx, q.len ? buf : NULL, (int)q.len, q.pts) : PMHWDEC_ERROR;
             break;
         case CD_GET: {
-            PmhwPicture pic;
+            PmhwdecPicture pic;
             rep.status = ctx ? be->get(ctx, &pic) : 0;
             if (rep.status == 1) {
                 if (pic.dmabuf_fd < 0) { be->put(ctx, &pic); rep.status = -1; break; }
@@ -99,13 +99,13 @@ int main(void)
                 rep.offset0 = pic.offset[0]; rep.offset1 = pic.offset[1]; rep.fourcc = pic.drm_fourcc;
                 rep.modifier = pic.drm_modifier; rep.pts = pic.pts;
                 rep.token = (uint32_t)(intptr_t)pic.priv;
-                rep.gen = pmhw_cedar_gen;
+                rep.gen = pmhwdec_cedar_gen;
                 pass = pic.dmabuf_fd;
             }
             break;
         }
         case CD_PUT:
-            if (ctx) { PmhwPicture pic = { .priv = (void *)(intptr_t)q.token }; be->put(ctx, &pic); }
+            if (ctx) { PmhwdecPicture pic = { .priv = (void *)(intptr_t)q.token }; be->put(ctx, &pic); }
             continue;                                     /* no reply */
         case CD_FLUSH:
             if (ctx) be->flush(ctx);

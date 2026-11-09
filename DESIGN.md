@@ -161,7 +161,7 @@ RG Cube XX (H700), engine time per frame (CPU sleeps in the IRQ wait meanwhile):
   | BBB HEVC 1080p Main 10 | engine ERROR on 105/300; the other frames finish but are wrong too (0 of the first 30 match) | |
 
   Main 10 failing fits the A133's spec (H.265 decode listed without 10-bit) and the old blobs' HEVC plugin refusing
-  10-bit on older chips: the A133P engine most likely has no 10-bit HEVC. pmhw_query must report max_bit_depth 8
+  10-bit on older chips: the A133P engine most likely has no 10-bit HEVC. pmhwdec_query must report max_bit_depth 8
   there (decide by the 0xe0 IP version: 0x30210 = 8-bit only, 0x33010 = 10-bit), and players should ask for a
   transcode or use software for Main 10.
 
@@ -170,17 +170,17 @@ Layout: `include/pmhwdec.h` (public API), `src/pmhwdec.c` (backend pick), `src/s
 reorder queue, AGAIN protocol, configure/caps checks), `src/h264.c` + `src/hevc.c` (codec layers: parsing, POC,
 reference marking, lists; jobs shaped like the V4L2 stateless controls so a v4l2req backend can reuse them),
 `src/cedar.c` (Allwinner backend), `src/cedrus_regs.h` (mainline, verbatim), `tools/pmhwdec_test.c` (public API only),
-`build.sh` (aarch64 .so/.a + pmhwdec-test; only the 8 pmhw_* symbols exported).
+`build.sh` (aarch64 .so/.a + pmhwdec-test; only the 8 pmhwdec_* symbols exported).
 - Two backend kinds: stream backends (rkmpp: data in, pictures out) and the stateless core driving HwOps (cedar now,
   v4l2req later for ROCKNIX: cedrus/hantro/rkvdec).
 - New vs the probes: several SPS/PPS ids, H.264 VUI max_num_reorder_frames, POC type 1, MMCO 5, multiple slices per
   picture (H.264 + independent HEVC slices), start at the first key frame after open/flush, missing references
-  substituted + picture marked corrupt, PMHW_UNSUPPORTED for streams beyond the chip (Main 10 on A133P, interlaced,
+  substituted + picture marked corrupt, PMHWDEC_UNSUPPORTED for streams beyond the chip (Main 10 on A133P, interlaced,
   scaling lists, tiles), engine reset after a timeout, one engine per process with a mutex.
 - **Cached picture buffers**: uncached ION made CPU copy-out cost 32 ms per 1080p frame (the decode is 5-11 ms).
   Now ION_FLAG_CACHED + sunxi's flush (ioctl 5 on the ION fd, clean+invalidate of a user VA range; ION_IOC_CUSTOM
   form as fallback, uncached if neither) after clearing at allocation and before handing a picture out:
-  copy-out 2.7 ms per 1080p frame, flush 0.2-0.3 ms in pmhw_get. PMHWDEC_CACHED=0 = old behavior.
+  copy-out 2.7 ms per 1080p frame, flush 0.2-0.3 ms in pmhwdec_get. PMHWDEC_CACHED=0 = old behavior.
 - **Kernel oops with dmabuf import (fixed 2026-10-30 21:45)**: 4.9 ION zaps the user mapping of a cached buffer
   whenever a device maps its dmabuf (ion_map_dma_buf → sync_for_device). After the Construct Native runtime
   imported pictures into EGL (Mali), the next export's sunxi flush walked the now unmapped user VAs. The result was an
@@ -190,7 +190,7 @@ reference marking, lists; jobs shaped like the V4L2 stateless controls so a v4l2
   have the same checksums as before, with no speed change, on the RG Cube XX.
   Still open: Mali (kbase) can map an import per GPU job. If a caller puts a picture back while a draw using it is
   still in flight, a map can land between the touch and the flush. Callers should wait for the GPU (fence/glFinish)
-  and drop the EGL image before pmhw_put. That is a rule for the API docs, since the library cannot see it.
+  and drop the EGL image before pmhwdec_put. That is a rule for the API docs, since the library cannot see it.
 - **Zero-copy per GPU (from the Construct Native runtime):**
   - **R36S 2GB (Mali):** the single-NV12-image import works, 1080p H.264 35.9 → 15.0 ms/frame. Per-plane R8 is
     refused (0x3009).
@@ -221,7 +221,7 @@ RG Cube XX (H700), pmhwdec-test through the public API, cached buffers (results/
 
 TrimUI Smart Pro (A133P), rerun with keep-awake (results/smartpro/lib): **all 10 8-bit clips bit-exact** (incl. both
 4-slice clips and BBB 1080p H.264 300/300 at 10.3 ms, BBB HEVC 300/300 at 6.3 ms; copy-out 2.9-3.2 ms at 1080p);
-both Main 10 clips refused with PMHW_UNSUPPORTED before any decode; caps say HEVC 8-bit.
+both Main 10 clips refused with PMHWDEC_UNSUPPORTED before any decode; caps say HEVC 8-bit.
 Keep-awake: Knulli's idlewatcher hooks (/etc/idlewatcher/{idle,extended}.d) skip dim + suspend while any
 /var/run/battery-saver/*.pause exists; probe/run_lib.sh creates pmhwdec.pause and removes it on exit (300 s idle =
 dim + optional powersave governor, 900 s = suspend on this unit).
@@ -237,7 +237,7 @@ run, then the remaining Smart Pro clips can be rerun.
 | BBB H.264 1080p | **300/300** |
 | hevc_intra, hevc_pb, hevc_pb_wpp, hevc_slices | 10/10, 60/60, 60/60, 60/60 |
 | BBB HEVC 1080p | **300/300** |
-| HEVC 720p Main 10, BBB Main 10 | PMHW_UNSUPPORTED (MPP output format 0x1 = NV15, stride 1600 / 2816 bytes) |
+| HEVC 720p Main 10, BBB Main 10 | PMHWDEC_UNSUPPORTED (MPP output format 0x1 = NV15, stride 1600 / 2816 bytes) |
 
 Throughput (`pmhwdec-test -s`: send/get only, no checksum/copy; MPP decodes in its own thread): **BBB H.264 1080p 236 fps,
 BBB HEVC 1080p 482 fps**; CPU ~94% idle in the snapshot after. Copy-out from the cached DRM buffers 1.2-1.3 ms/1080p.
@@ -281,7 +281,7 @@ pic_order_cnt_bit_size, dec_ref_pic_marking_bit_size). Mainline uapi headers ven
 **Copy-out fixed (2026-10-30)**: hantro's MMAP capture buffers are coherent = uncached (no
 V4L2_BUF_CAP_SUPPORTS_MMAP_CACHE_HINTS): 34 ms per 1080p CPU copy. Now V4L2_MEMORY_DMABUF capture buffers from
 /dev/dma_heap/system (cached, non-contiguous; used only when the video device has an iommu_group in sysfs) +
-DMA_BUF_IOCTL_SYNC START/END READ in pmhw_get: **copy-out 4.2 ms per 1080p frame** (A35), sync 0.7 ms, decode
+DMA_BUF_IOCTL_SYNC START/END READ in pmhwdec_get: **copy-out 4.2 ms per 1080p frame** (A35), sync 0.7 ms, decode
 unchanged at 17.7 ms, all five clips still bit-exact (results/rg351p/lib-heap). Fallbacks: MMAP with the
 non-coherent hint, then plain MMAP; PMHWDEC_V4L2_DMABUF=0 forces MMAP. uapi dma-heap.h / dma-buf.h vendored too.
 Not done yet: HEVC over V4L2, VP9.
@@ -390,7 +390,7 @@ on the `next` branch, checked 2026-10-30, user's point):
 ### Written before the first run
 
 - `rkmpp/build_mpp.sh`: clones rockchip-linux/mpp at tag **1.1.0** (1.0.11 is broken upstream: its av1 CMakeLists
-  names a missing file) into WSL ~/pmhw/mpp and cross-builds `out/aarch64/mpp/librockchip_mpp.so` (needs only
+  names a missing file) into WSL ~/pmhwdec/mpp and cross-builds `out/aarch64/mpp/librockchip_mpp.so` (needs only
   libc/libm/pthread, SONAME librockchip_mpp.so.1) + LICENSE.mpp.txt. Needs -fPIC on all objects. User approved the clone.
   **Cut to the bone 2026-11-07: 539,088 bytes stripped, 254,930 gzip -9** (stock full build 2.87 MB). Steps, each
   measured stripped / gzip -9: other codecs + encoders off (mpp/codecs.cmake), -Os, function/data sections, lld
@@ -399,8 +399,8 @@ on the `next` branch, checked 2026-10-30, user's point):
   decoder IP list (`rkmpp/patch_hw_list.py`, MPP_HW_LIST=VDPU2,VDPU341,VDPU34X): 902,816 / 393,537 -> no unwind tables
   (MPP is plain C, no C++ / pthread_cancel / backtrace): 816,256 / 370,389 -> encoder framework out
   (`rkmpp/patch_no_enc.py`: mpp_enc_cfg / mpp_enc_impl / rate control / vepu HAL commons / kmpp venc leave the CMake
-  lists, mpp/codec/pmhw_noenc.c stubs the 12 symbols the decoder side still names, mpp_init(MPP_CTX_ENC) -> MPP_NOK):
-  593,968 / 279,487 -> env-gated mpp_dbg() traces compiled out (`rkmpp/patch_no_dbg_log.py`, -DPMHW_NO_DBG_LOG;
+  lists, mpp/codec/pmhwdec_noenc.c stubs the 12 symbols the decoder side still names, mpp_init(MPP_CTX_ENC) -> MPP_NOK):
+  593,968 / 279,487 -> env-gated mpp_dbg() traces compiled out (`rkmpp/patch_no_dbg_log.py`, -DPMHWDEC_NO_DBG_LOG;
   errors/warnings stay; `MPP_DBG_LOG=1 bash rkmpp/build_mpp.sh` keeps them for chasing a device problem):
   539,088 / 254,930. Linked with -z defs, so a patch that misses a symbol fails the build, not the dlopen().
   HALs kept (each registers only on the SoCs in its .soc_type): h264d_vdpu2 (RK3326/PX30 H.264; 2nd choice on
@@ -414,26 +414,26 @@ on the `next` branch, checked 2026-10-30, user's point):
 - `src/rkmpp.c`: stream backend. dlopen()s librockchip_mpp (next to libpmhwdec / pmhwdec-test first, then the system),
   only the needed symbols (`*_with_caller` / `*_f` forms of the buffer macros). Offered when a Rockchip decoder node
   exists (/dev/mpp_service, rkvdec, hevc_service, vpu_service, vpu-service) and mpp_check_support_format() agrees.
-  Whole access units (split mode 0), non-blocking get, MPP_ERR_BUFFER_FULL -> PMHW_AGAIN, EOS waits up to 2 s for
+  Whole access units (split mode 0), non-blocking get, MPP_ERR_BUFFER_FULL -> PMHWDEC_AGAIN, EOS waits up to 2 s for
   MPP's EOS frame. Output from a cached DRM buffer group (plain DRM, then ION as fallbacks), mpp_buffer_sync_begin
-  (read-only) before the CPU gets a frame. 10-bit (NV15) and FBC formats -> PMHW_UNSUPPORTED for now.
+  (read-only) before the CPU gets a frame. 10-bit (NV15) and FBC formats -> PMHWDEC_UNSUPPORTED for now.
 - Built against MPP headers (Apache-2.0) at compile time; the .so is shipped next to libpmhwdec by a port.
 - Test plan: RG552 (AmberELEC 4.4, RK3399: rkvdec + vpu_service, root-only nodes), then RG353V / R36S (dArkOS).
 
 ## FFmpeg / mpv glue (2026-10-30): **plays in mpv on the RG Cube XX**
-`glue/ffmpeg/pmhwdec_ff.c`: FFmpeg decoders `h264_pmhw` / `hevc_pmhw` (same pattern as the Jellyfin port's
-h264_cedar): dlopen libpmhwdec.so(.1), pmhw_query + a check of the container's profile / bit depth / size against the
+`glue/ffmpeg/pmhwdec_ff.c`: FFmpeg decoders `h264_pmhwdec` / `hevc_pmhwdec` (same pattern as the Jellyfin port's
+h264_cedar): dlopen libpmhwdec.so(.1), pmhwdec_query + a check of the container's profile / bit depth / size against the
 caps in init (refuse = the player falls back to software; mid-stream it could not), mp4toannexb bsfs, NV12 output
-copied from the (cached) planes, PMHW_AGAIN handled by keeping the packet, PMHW_UNSUPPORTED mid-stream =
+copied from the (cached) planes, PMHWDEC_AGAIN handled by keeping the packet, PMHWDEC_UNSUPPORTED mid-stream =
 AVERROR_PATCHWELCOME, corrupt pictures flagged. Env PM_HWDEC=0 disables.
-Jellyfin port wiring: tools-src/pmhw/ (copies of the glue + pmhwdec.h), build_libmpv.sh `ffmpeg_add_pmhw` (FFmpeg
-7.1.2), release/jellyfinmpvshim/pmhw_setup.sh (pmhwdec-test -q -> PM_HW_VD / PM_HW_HEVC10, turns Transcode HEVC off once),
+Jellyfin port wiring: tools-src/pmhwdec/ (copies of the glue + pmhwdec.h), build_libmpv.sh `ffmpeg_add_pmhwdec` (FFmpeg
+7.1.2), release/jellyfinmpvshim/pmhwdec_setup.sh (pmhwdec-test -q -> PM_HW_VD / PM_HW_HEVC10, turns Transcode HEVC off once),
 launcher sources it and only falls back to cedar_fetch.sh (Allwinner blobs) when it found nothing, run.py uses
 PM_HW_VD and keeps the "10-bit only for H.264" profile tweak only where HEVC 10-bit decodes, stage_release.sh stages
-libs/pmhw (libpmhwdec.so, pmhwdec-test, librockchip_mpp.so) + LICENSE.pmhwdec / LICENSE.mpp + src/pmhw.
-Test (Jellyfin pctest/device_pmhw.sh: new libmpv + libpmhwdec from /tmp, installed port untouched), RG Cube XX:
-pmhw_setup -> `hevc_pmhw,h264_pmhw,` + HEVC10; BBB HEVC 10-bit 1080p and H.264 1080p MKVs (5.1 AC-3): mpv picks the
-pmhw decoders, **0 decoder drops, 30 fps, backward seek OK**; frame grabs clean (results/cubexx/mpv).
+libs/pmhwdec (libpmhwdec.so, pmhwdec-test, librockchip_mpp.so) + LICENSE.pmhwdec / LICENSE.mpp + src/pmhwdec.
+Test (Jellyfin pctest/device_pmhwdec.sh: new libmpv + libpmhwdec from /tmp, installed port untouched), RG Cube XX:
+pmhwdec_setup -> `hevc_pmhwdec,h264_pmhwdec,` + HEVC10; BBB HEVC 10-bit 1080p and H.264 1080p MKVs (5.1 AC-3): mpv picks the
+pmhwdec decoders, **0 decoder drops, 30 fps, backward seek OK**; frame grabs clean (results/cubexx/mpv).
 **Open before a release: the license of libpmhwdec** (see below), then a zip, then the other devices.
 
 ### License: library **LGPL-2.1-or-later**, Allwinner decoder a separate **GPL** program (user decision 2026-11-07)
@@ -447,7 +447,7 @@ pmhw decoders, **0 decoder drops, 30 fps, backward seek OK**; frame grabs clean 
   - Access units go over as bytes. Pictures come back as ION dma-buf fds (SCM_RIGHTS), mapped once per buffer
     (cached by inode, dropped when the helper reallocates). The helper does the cache flush before each picture.
   - OPEN carries the client's self-test depth.
-  - 3 s reply timeout: a helper that dies or hangs ends the stream with PMHW_UNSUPPORTED (software).
+  - 3 s reply timeout: a helper that dies or hangs ends the stream with PMHWDEC_UNSUPPORTED (software).
   - The helper exits on socket EOF.
 - **Verified 2026-11-07** through the tester kit:
   - RG Cube XX (Knulli, H700): all 12 clips, 8-bit bit-exact, 10-bit self-test OK, kernel log clean.
@@ -467,16 +467,16 @@ pmhw decoders, **0 decoder drops, 30 fps, backward seek OK**; frame grabs clean 
 MPP outputs 10-bit as NV15 (4 samples in 5 bytes); rk_get converts to NV12 keeping the top 8 bits (truncation, as on
 Allwinner) into a pool of 8 reusable buffers (no dmabuf for these). Results vs FFmpeg's truncated 10-bit decode:
 RG353V (RK3566) and RG552 (RK3399) **30/30 + 30/30 match**, 1080p Main 10 192 / 176 fps incl. conversion (~4.5 ms per
-frame in pmhw_get); 8-bit regression 300/300 on all three. **RK3326 (R36S 2GB): 0 matches** (its HEVC block is Main
+frame in pmhwdec_get); 8-bit regression 300/300 on all three. **RK3326 (R36S 2GB): 0 matches** (its HEVC block is Main
 only; MPP accepts the stream anyway) -> soc_is_rk3326() (plain "rockchip,rk3326"/"px30" compatible) caps HEVC at 8
-bit and refuses NV15 there with PMHW_UNSUPPORTED (checked on the R36S 2GB).
+bit and refuses NV15 there with PMHWDEC_UNSUPPORTED (checked on the R36S 2GB).
 
 ## v4l2m2m backend (2026-10-30): stateful V4L2, **RP5 (SM8250, ROCKNIX 7.2, qcom-iris)**
 `src/v4l2m2m.c`: stream backend per dev-decoder.rst (source-change init, MIN_BUFFERS_FOR_CAPTURE + extra, COMPOSE crop,
 DEC_CMD_STOP drain, OUTPUT restart on seek, pts in buffer timestamps; Venus/Iris luma padded to 32 lines; cached
 dma_heap capture when the device has an iommu_group, else MMAP). Guards: no capture setup within 3 s of being fed ->
-PMHW_UNSUPPORTED (Iris refuses 10-bit silently: dmesg "unsupported content, bit depth: 20002"); no progress 5 s ->
-PMHW_ERROR. pmhwdec-test got a stuck guard. Order in pmhwdec.c: cedar, rkmpp, v4l2req, v4l2m2m.
+PMHWDEC_UNSUPPORTED (Iris refuses 10-bit silently: dmesg "unsupported content, bit depth: 20002"); no progress 5 s ->
+PMHWDEC_ERROR. pmhwdec-test got a stuck guard. Order in pmhwdec.c: cedar, rkmpp, v4l2req, v4l2m2m.
 | RP5 | result |
 |--|--|
 | HEVC intra / P/B / WPP / 4 slices | **all bit-exact** (10, 60, 60, 60) |
@@ -492,7 +492,7 @@ libmpv too ("Suspected software renderer" under Xvfb): a WSL Mesa/Xvfb environme
 For chips no hub device has (RK3588, RK3328, RK3576, H616/H618, Rockchip HEVC on ROCKNIX ...), the library checks
 itself instead of being trusted blind:
 - **Known-answer test** (src/selftest.c, data from tools/gen_selftest.py → src/selftest_data.h, ~10 KB of clips):
-  before a backend is used for a codec, pmhw_query / pmhw_open decode a built-in 160x96, 6-frame clip with it (H.264
+  before a backend is used for a codec, pmhwdec_query / pmhwdec_open decode a built-in 160x96, 6-frame clip with it (H.264
   High with B-frames and weighted prediction, HEVC Main, HEVC Main 10; frame order I B B P B P). Every frame's 8x8
   block means (Y, U, V) must be within 2 of FFmpeg's decode. Block means rather than checksums: the RP5's rare ±1
   sample deviations don't trip it, while wrong formats, colors, references or order move means by tens.
@@ -575,7 +575,7 @@ backend has them, a dmabuf fd + DRM fourcc/modifier for zero-copy EGL import. Qu
 max sizes / bit depths the current device can do before opening, so a player can tell its server to transcode.
 
 ## FFmpeg / mpv glue
-`<codec>_pmhw` lavc decoders (same pattern as h264_cedar/hevc_cedar in cedardec.c): dlopen libpmhwdec, fall back
+`<codec>_pmhwdec` lavc decoders (same pattern as h264_cedar/hevc_cedar in cedardec.c): dlopen libpmhwdec, fall back
 on init failure. The Jellyfin port switches from the cedar-only decoders to these.
 
 ## Phases

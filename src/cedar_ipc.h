@@ -4,8 +4,8 @@
  * socketpair: every request gets one reply, except PUT. Pictures cross as dma-buf fds (SCM_RIGHTS on GET replies);
  * the client maps each buffer once and keeps the mapping. Keeping the Cedrus-derived code in its own process lets
  * closed programs (Unity players) use the library: they talk to a separate program, they don't link it. */
-#ifndef PMHW_CEDAR_IPC_H
-#define PMHW_CEDAR_IPC_H
+#ifndef PMHWDEC_CEDAR_IPC_H
+#define PMHWDEC_CEDAR_IPC_H
 #include <stdint.h>
 
 #define CD_VERSION 1
@@ -23,7 +23,7 @@ typedef struct CdReq {
 } CdReq;
 
 typedef struct CdRep {
-    int32_t status;              /* QUERY/OPEN: 0 or -1; SEND: PMHW_*; GET: 1 picture, 0 none */
+    int32_t status;              /* QUERY/OPEN: 0 or -1; SEND: PMHWDEC_*; GET: 1 picture, 0 none */
     int32_t max_width, max_height, max_bit_depth;      /* QUERY */
     /* GET: the picture; its dma-buf comes as the message's SCM_RIGHTS fd */
     int32_t width, height, left, top, stride0, stride1, corrupt;

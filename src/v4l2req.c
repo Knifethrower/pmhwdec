@@ -82,10 +82,10 @@ static int find_media(int vfd, const char *video, char *out, size_t n)
 
 /* first decoder that takes this codec's slice format: frame-based with Annex-B start codes, or slice-based (with or
  * without start codes) */
-static int find_device(PmhwCodec codec, Dev *dev)
+static int find_device(PmhwdecCodec codec, Dev *dev)
 {
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC && codec != PMHW_CODEC_VP8) return -1;
-    int hevc = codec == PMHW_CODEC_HEVC, vp8 = codec == PMHW_CODEC_VP8;
+    if (codec != PMHWDEC_CODEC_H264 && codec != PMHWDEC_CODEC_HEVC && codec != PMHWDEC_CODEC_VP8) return -1;
+    int hevc = codec == PMHWDEC_CODEC_HEVC, vp8 = codec == PMHWDEC_CODEC_VP8;
     uint32_t fmt = vp8 ? V4L2_PIX_FMT_VP8_FRAME : hevc ? V4L2_PIX_FMT_HEVC_SLICE : V4L2_PIX_FMT_H264_SLICE;
     uint32_t sc_id = hevc ? V4L2_CID_STATELESS_HEVC_START_CODE : V4L2_CID_STATELESS_H264_START_CODE;
     uint32_t dm_id = hevc ? V4L2_CID_STATELESS_HEVC_DECODE_MODE : V4L2_CID_STATELESS_H264_DECODE_MODE;
@@ -141,16 +141,16 @@ static int find_device(PmhwCodec codec, Dev *dev)
     return -1;
 }
 
-static int v_query(PmhwCodec codec, PmhwCaps *caps)
+static int v_query(PmhwdecCodec codec, PmhwdecCaps *caps)
 {
-    static Dev cache[PMHW_CODEC_COUNT];
-    static int tried[PMHW_CODEC_COUNT], found[PMHW_CODEC_COUNT];
-    if (codec >= PMHW_CODEC_COUNT) return -1;
+    static Dev cache[PMHWDEC_CODEC_COUNT];
+    static int tried[PMHWDEC_CODEC_COUNT], found[PMHWDEC_CODEC_COUNT];
+    if (codec >= PMHWDEC_CODEC_COUNT) return -1;
     if (!tried[codec]) { tried[codec] = 1; found[codec] = find_device(codec, &cache[codec]) == 0; }
     if (!found[codec]) return -1;
     caps->max_width = cache[codec].max_w;
     caps->max_height = cache[codec].max_h;
-    caps->max_bit_depth = codec == PMHW_CODEC_HEVC ? 10 : 8;   /* HEVC 10: cedrus on H6/H616; the self-test decides */
+    caps->max_bit_depth = codec == PMHWDEC_CODEC_HEVC ? 10 : 8;   /* HEVC 10: cedrus on H6/H616; the self-test decides */
     caps->backend = "v4l2req";
     return 0;
 }
@@ -159,7 +159,7 @@ static int v_query(PmhwCodec codec, PmhwCaps *caps)
 typedef struct Map { void *p; size_t len; } Map;
 
 typedef struct V {
-    PmhwCodec codec;
+    PmhwdecCodec codec;
     Dev dev;
     int vfd, mfd, streaming;
     Geom g;
@@ -213,7 +213,7 @@ static void buf_set(const V *v, struct v4l2_buffer *b, struct v4l2_plane *pl, ui
     else { b->bytesused = bytesused; b->length = length; if (fd >= 0) b->m.fd = fd; }
 }
 
-static void *v_open(PmhwCodec codec)
+static void *v_open(PmhwdecCodec codec)
 {
     V *v = calloc(1, sizeof *v);
     if (!v) return NULL;
@@ -334,7 +334,7 @@ static int v_configure(void *hw, const Geom *g)
     V *v = hw;
     teardown(v);
     v->g = *g;
-    int hevc = v->codec == PMHW_CODEC_HEVC, vp8 = v->codec == PMHW_CODEC_VP8;
+    int hevc = v->codec == PMHWDEC_CODEC_HEVC, vp8 = v->codec == PMHWDEC_CODEC_VP8;
     uint32_t fmt = vp8 ? V4L2_PIX_FMT_VP8_FRAME : hevc ? V4L2_PIX_FMT_HEVC_SLICE : V4L2_PIX_FMT_H264_SLICE;
     if (g->bit_depth > (hevc ? 10 : 8)) { LOG("v4l2req: %d-bit not supported", g->bit_depth); return -1; }
     if (!vp8 && (set_ctrl(v->vfd, hevc ? V4L2_CID_STATELESS_HEVC_DECODE_MODE : V4L2_CID_STATELESS_H264_DECODE_MODE,
@@ -453,7 +453,7 @@ static int send_request(V *v, int o, int hold)
         { .id = V4L2_CID_STATELESS_H264_PRED_WEIGHTS, .size = sizeof v->pw, .ptr = &v->pw },
     };
     int n = !v->dev.slice_mode ? 4 : v->weights ? 6 : 5;
-    if (v->codec == PMHW_CODEC_HEVC) {               /* no scaling matrix: streams with scaling lists are refused */
+    if (v->codec == PMHWDEC_CODEC_HEVC) {               /* no scaling matrix: streams with scaling lists are refused */
         struct v4l2_ext_control h[5] = {
             { .id = V4L2_CID_STATELESS_HEVC_SPS, .size = sizeof v->hsps, .ptr = &v->hsps },
             { .id = V4L2_CID_STATELESS_HEVC_PPS, .size = sizeof v->hpps, .ptr = &v->hpps },
@@ -463,7 +463,7 @@ static int send_request(V *v, int o, int hold)
         };
         n = v->hnep ? 5 : 4;
         memcpy(c, h, sizeof h);
-    } else if (v->codec == PMHW_CODEC_VP8) {
+    } else if (v->codec == PMHWDEC_CODEC_VP8) {
         c[0] = (struct v4l2_ext_control){ .id = V4L2_CID_STATELESS_VP8_FRAME, .size = sizeof v->vp8, .ptr = &v->vp8 };
         n = 1;
     }
@@ -940,7 +940,7 @@ static int v_vp8_frame(void *hw, const Vp8Job *j)
     return v_end_picture(hw, j->cur);
 }
 
-static void v_export(void *hw, int slot, PmhwPicture *pic)
+static void v_export(void *hw, int slot, PmhwdecPicture *pic)
 {
     V *v = hw;
     uint8_t *base = v->cap[slot].p;
@@ -948,7 +948,7 @@ static void v_export(void *hw, int slot, PmhwPicture *pic)
         cpu_sync(v->cap_fd[slot], DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ);
         cpu_sync(v->cap_fd[slot], DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ);
     }
-    pic->format = PMHW_FMT_NV12;
+    pic->format = PMHWDEC_FMT_NV12;
     pic->plane[0] = base;
     pic->plane[1] = base + v->cap_off1;
     pic->stride[0] = pic->stride[1] = v->bpl;
@@ -969,8 +969,8 @@ static void v_close(void *hw)
     free(v);
 }
 
-static void *v_open_ops(PmhwCodec codec) { return v_open(codec); }
+static void *v_open_ops(PmhwdecCodec codec) { return v_open(codec); }
 
-const HwOps pmhw_v4l2req_ops = {
+const HwOps pmhwdec_v4l2req_ops = {
     "v4l2req", v_query, v_open_ops, v_configure, v_h264_slice, v_hevc_slice, v_export, v_close, v_end_picture, v_vp8_frame,
 };

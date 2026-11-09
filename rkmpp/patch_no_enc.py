@@ -1,7 +1,7 @@
 """Patches MPP so librockchip_mpp is built without its encoder framework: build_mpp.sh already turns every encoder
 codec off (ENABLE_H264E=OFF ...), but the encoder core still links in (mpp_enc_cfg's config trie, mpp_enc_impl's
 threads, the rate-control models, the vepu HAL commons, kmpp's kernel-venc path: ~150 KB). Those sources leave the
-CMake lists and mpp/codec/pmhw_noenc.c stands in for the 12 symbols the decoder side still names (all reached only
+CMake lists and mpp/codec/pmhwdec_noenc.c stands in for the 12 symbols the decoder side still names (all reached only
 for an MPP_CTX_ENC context): mpp_init(MPP_CTX_ENC) fails with MPP_NOK, decoding is untouched.
 build_mpp.sh links with -z defs, so a symbol this misses breaks the build instead of the dlopen().
 usage: python3 patch_no_enc.py <mpp source dir>   (idempotent)"""
@@ -47,12 +47,12 @@ MPP_RET mpp_enc_cfg_extract(MppEncCfg cfg, MppCfgStrFmt fmt, char **buf)
 }
 
 /* kmpp.c picks this for a kernel-venc context (mpp.c only builds one for an encoder with an init kcfg) */
-static MPP_RET pmhw_kmpp_venc_init(Kmpp *ctx, MppCtxType type, MppCodingType coding)
+static MPP_RET pmhwdec_kmpp_venc_init(Kmpp *ctx, MppCtxType type, MppCodingType coding)
 {
     (void)ctx; (void)type; (void)coding;
     return MPP_NOK;
 }
-KmppOps kmpp_venc_obj_ops = { .init = pmhw_kmpp_venc_init };
+KmppOps kmpp_venc_obj_ops = { .init = pmhwdec_kmpp_venc_init };
 """
 
 # (file, old, new): each old must occur exactly once before patching
@@ -62,7 +62,7 @@ EDITS = [
      "%s\nadd_library(mpp_base OBJECT\n" % MARK),
     ("mpp/codec/CMakeLists.txt",
      "add_library(mpp_codec STATIC\n    mpp_enc_impl.c\n    mpp_enc_v2.c\n    enc_impl.c\n",
-     "%s\nadd_library(mpp_codec STATIC\n    pmhw_noenc.c\n" % MARK),
+     "%s\nadd_library(mpp_codec STATIC\n    pmhwdec_noenc.c\n" % MARK),
     ("mpp/codec/CMakeLists.txt", "add_library(mpp_rc OBJECT mpp_rc.c)\n", ""),
     ("mpp/codec/CMakeLists.txt", "add_subdirectory(enc)\n", ""),
     ("mpp/codec/CMakeLists.txt", "add_subdirectory(rc)\n", ""),
@@ -75,7 +75,7 @@ EDITS = [
     ("kmpp/base/CMakeLists.txt", "    kmpp_venc_cfg.c\n", "    %s\n" % MARK),
 ]
 
-stub = root / "mpp" / "codec" / "pmhw_noenc.c"
+stub = root / "mpp" / "codec" / "pmhwdec_noenc.c"
 if all(MARK in (root / f).read_text(encoding="utf-8") for f, _, _ in EDITS) and stub.exists():
     stub.write_text(STUB, encoding="utf-8", newline="\n")   # keep the stub current
     print("encoder framework already patched out")

@@ -1,6 +1,6 @@
 #!/bin/bash
 # WSL: cross-builds Rockchip MPP (librockchip_mpp.so, Apache-2.0 / MIT) for aarch64 against the bullseye sysroot.
-#   bash build_mpp.sh             -> ../out/aarch64/mpp/ (librockchip_mpp.so.1 + LICENSE.mpp.txt); headers in ~/pmhw/mpp/inc
+#   bash build_mpp.sh             -> ../out/aarch64/mpp/ (librockchip_mpp.so.1 + LICENSE.mpp.txt); headers in ~/pmhwdec/mpp/inc
 #   ARCH=armhf bash build_mpp.sh  -> ../out/armhf/mpp/ (32-bit, buster armhf sysroot, glibc 2.28)
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -11,12 +11,12 @@ case "$ARCH" in
   armhf)   SYSROOT=${SYSROOT:-$HOME/chroot-buster-armhf}; TRIPLE=arm-linux-gnueabihf; PROC=arm
            CPU="-march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard"
            # the buster sysroot's libpthread.so / libdl.so / libm.so / librt.so are absolute symlinks out of it
-           LFIX=$HOME/pmhw/armhf-libfix; mkdir -p "$LFIX"
+           LFIX=$HOME/pmhwdec/armhf-libfix; mkdir -p "$LFIX"
            for l in pthread.so.0 dl.so.2 m.so.6 rt.so.1; do ln -sf "$SYSROOT/lib/arm-linux-gnueabihf/lib$l" "$LFIX/lib${l%%.so*}.so"; done
            LFIX="-L$LFIX" ;;
   *) echo "ARCH must be aarch64 or armhf"; exit 1 ;;
 esac
-SRC=${SRC:-$HOME/pmhw/mpp}
+SRC=${SRC:-$HOME/pmhwdec/mpp}
 REPO=https://github.com/rockchip-linux/mpp.git
 TAG=${TAG:-1.1.0}               # 1.0.11 is broken upstream (av1 CMakeLists names a missing file)
 command -v cmake >/dev/null || { echo "cmake missing (apt install cmake ninja-build)"; exit 1; }
@@ -31,9 +31,9 @@ echo "patched: osal/mpp_soc.c read_soc_name() keeps plain rockchip,rkNNNN compat
 python3 -I "$HERE/patch_hw_list.py" "$SRC"      # MPP_HW_LIST: only the decoder IPs below
 echo "patched: mpp/soc.cmake takes MPP_HW_LIST (pmhwdec rkmpp/patch_hw_list.py)" >> "$HERE/MPP_VERSION.txt"
 python3 -I "$HERE/patch_no_enc.py" "$SRC"       # no encoder framework: see the script
-echo "patched: encoder framework out of the CMake lists, mpp/codec/pmhw_noenc.c stubs (pmhwdec rkmpp/patch_no_enc.py)" >> "$HERE/MPP_VERSION.txt"
+echo "patched: encoder framework out of the CMake lists, mpp/codec/pmhwdec_noenc.c stubs (pmhwdec rkmpp/patch_no_enc.py)" >> "$HERE/MPP_VERSION.txt"
 python3 -I "$HERE/patch_no_dbg_log.py" "$SRC"   # mpp_dbg() traces compile out unless MPP_DBG_LOG=1
-echo "patched: osal/inc/mpp_debug.h takes PMHW_NO_DBG_LOG (pmhwdec rkmpp/patch_no_dbg_log.py)" >> "$HERE/MPP_VERSION.txt"
+echo "patched: osal/inc/mpp_debug.h takes PMHWDEC_NO_DBG_LOG (pmhwdec rkmpp/patch_no_dbg_log.py)" >> "$HERE/MPP_VERSION.txt"
 cat > "$SRC/../$ARCH.cmake" <<EOF
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR $PROC)
@@ -76,7 +76,7 @@ API=$(grep -oE 'SYM\([a-z_0-9]+, *"[a-z_0-9]+"\)' "$HERE/../src/rkmpp.c" | grep 
 # The linker flags replace the toolchain file's _INIT ones, so lld / libm are repeated here. -z defs: a symbol a
 # patch removed but something still names fails the link, not the dlopen().
 SECT="-ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables -fno-unwind-tables"
-DBG=-DPMHW_NO_DBG_LOG; [ "${MPP_DBG_LOG:-0}" = 1 ] && DBG= && echo "MPP_DBG_LOG=1: mpp_dbg() traces kept"
+DBG=-DPMHWDEC_NO_DBG_LOG; [ "${MPP_DBG_LOG:-0}" = 1 ] && DBG= && echo "MPP_DBG_LOG=1: mpp_dbg() traces kept"
 cmake -S "$SRC" -B "$B" -G Ninja -DCMAKE_TOOLCHAIN_FILE="$SRC/../$ARCH.cmake" -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_TEST=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON $CODECS \
     -DCMAKE_C_FLAGS_RELEASE="-Os -DNDEBUG" -DCMAKE_CXX_FLAGS_RELEASE="-Os -DNDEBUG" \

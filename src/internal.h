@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* pmhwdec internals: backend interface, the stateless decoder core, shared helpers. */
-#ifndef PMHW_INTERNAL_H
-#define PMHW_INTERNAL_H
+#ifndef PMHWDEC_INTERNAL_H
+#define PMHWDEC_INTERNAL_H
 #include <stdint.h>
 #include <stdio.h>
 #include "pmhwdec.h"
@@ -12,18 +12,18 @@
 #define BIT(n) (1u << (n))
 #endif
 
-extern int pmhw_log_on;
-#define LOG(...) do { if (pmhw_log_on) { fprintf(stderr, "pmhwdec: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
+extern int pmhwdec_log_on;
+#define LOG(...) do { if (pmhwdec_log_on) { fprintf(stderr, "pmhwdec: " __VA_ARGS__); fputc('\n', stderr); } } while (0)
 #define ERR(...) do { fprintf(stderr, "pmhwdec: " __VA_ARGS__); fputc('\n', stderr); } while (0)
 
 /* ---- a backend, as the public API sees it ---- */
 typedef struct Backend {
     const char *name;
-    int (*query)(PmhwCodec codec, PmhwCaps *caps);
-    void *(*open)(PmhwCodec codec, int width, int height);
+    int (*query)(PmhwdecCodec codec, PmhwdecCaps *caps);
+    void *(*open)(PmhwdecCodec codec, int width, int height);
     int (*send)(void *ctx, const uint8_t *data, int size, int64_t pts);
-    int (*get)(void *ctx, PmhwPicture *pic);
-    void (*put)(void *ctx, PmhwPicture *pic);
+    int (*get)(void *ctx, PmhwdecPicture *pic);
+    void (*put)(void *ctx, PmhwdecPicture *pic);
     void (*flush)(void *ctx);
     void (*close)(void *ctx);
 } Backend;
@@ -41,7 +41,7 @@ typedef struct Slot {
 } Slot;
 
 typedef struct Geom {
-    PmhwCodec codec;
+    PmhwdecCodec codec;
     int width, height;           /* coded size in luma samples (H.264: MB aligned) */
     int stride, coded_h;         /* NV12 layout: ALIGN16 */
     int vis_x, vis_y, vis_w, vis_h;
@@ -57,12 +57,12 @@ struct Vp8Job;
 
 typedef struct HwOps {
     const char *name;
-    int (*query)(PmhwCodec codec, PmhwCaps *caps);
-    void *(*open)(PmhwCodec codec);
+    int (*query)(PmhwdecCodec codec, PmhwdecCaps *caps);
+    void *(*open)(PmhwdecCodec codec);
     int (*configure)(void *hw, const Geom *g);        /* (re)allocates g->nslots picture buffers */
     int (*h264_slice)(void *hw, const struct H264Job *j);   /* 0 ok, 1 decoded with errors, -1 failed */
     int (*hevc_slice)(void *hw, const struct HevcJob *j);
-    void (*export_pic)(void *hw, int slot, PmhwPicture *pic);
+    void (*export_pic)(void *hw, int slot, PmhwdecPicture *pic);
     void (*close)(void *hw);
     /* optional: frame-based hardware decodes here, after all slices of the picture went through *_slice();
      * called before reference marking. 0 ok, 1 decoded with errors, -1 failed */
@@ -71,7 +71,7 @@ typedef struct HwOps {
 } HwOps;
 
 typedef struct SL {
-    PmhwCodec codec;
+    PmhwdecCodec codec;
     const HwOps *hw;
     void *hwctx;
     Slot slot[MAX_SLOTS];
@@ -88,7 +88,7 @@ typedef struct SL {
 } SL;
 
 int sl_free_slot(SL *s);
-/* PMHW_AGAIN while old pictures are still queued/held; then reallocates */
+/* PMHWDEC_AGAIN while old pictures are still queued/held; then reallocates */
 int sl_configure(SL *s, const Geom *g, int reorder);
 void sl_queue(SL *s, int slot);
 int sl_unescape(SL *s, const uint8_t *src, int n);
@@ -110,16 +110,16 @@ void vp8_reset(SL *s);
 void vp8_free(void *st);
 
 /* backends */
-extern const HwOps pmhw_cedar_ops;               /* pmhwdec-cedard only (GPL): the library uses the client */
-extern const Backend pmhw_cedar_client_backend;
-extern const HwOps pmhw_v4l2req_ops;
-extern const Backend pmhw_rkmpp_backend;
-extern const Backend pmhw_v4l2m2m_backend;
-const Backend *pmhw_stateless_backend(const HwOps *ops);
+extern const HwOps pmhwdec_cedar_ops;               /* pmhwdec-cedard only (GPL): the library uses the client */
+extern const Backend pmhwdec_cedar_client_backend;
+extern const HwOps pmhwdec_v4l2req_ops;
+extern const Backend pmhwdec_rkmpp_backend;
+extern const Backend pmhwdec_v4l2m2m_backend;
+const Backend *pmhwdec_stateless_backend(const HwOps *ops);
 
 /* self-test (selftest.c): the bit depth a backend passed for a codec (0 = not usable), capped at max_depth */
-int pmhw_selftest(const Backend *be, PmhwCodec codec, int max_depth);
+int pmhwdec_selftest(const Backend *be, PmhwdecCodec codec, int max_depth);
 /* for backends that see a stream's depth only in its headers: 0 = its 10-bit test failed, refuse the stream */
-int pmhw_selftest_depth_allowed(const char *backend, PmhwCodec codec, int depth);
+int pmhwdec_selftest_depth_allowed(const char *backend, PmhwdecCodec codec, int depth);
 
 #endif

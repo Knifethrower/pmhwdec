@@ -32,9 +32,9 @@ static int xioctl(int fd, unsigned long req, void *arg)
     return r;
 }
 
-static uint32_t fourcc(PmhwCodec c)
+static uint32_t fourcc(PmhwdecCodec c)
 {
-    return c == PMHW_CODEC_H264 ? V4L2_PIX_FMT_H264 : c == PMHW_CODEC_HEVC ? V4L2_PIX_FMT_HEVC : V4L2_PIX_FMT_VP9;
+    return c == PMHWDEC_CODEC_H264 ? V4L2_PIX_FMT_H264 : c == PMHWDEC_CODEC_HEVC ? V4L2_PIX_FMT_HEVC : V4L2_PIX_FMT_VP9;
 }
 
 static int has_fmt(int fd, uint32_t type, uint32_t f)
@@ -45,9 +45,9 @@ static int has_fmt(int fd, uint32_t type, uint32_t f)
     return 0;
 }
 
-static int find_device(PmhwCodec codec, M2MDev *dev)
+static int find_device(PmhwdecCodec codec, M2MDev *dev)
 {
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC) return -1;
+    if (codec != PMHWDEC_CODEC_H264 && codec != PMHWDEC_CODEC_HEVC) return -1;
     for (int i = 0; i < 64; i++) {
         snprintf(dev->video, sizeof dev->video, "/dev/video%d", i);
         int fd = open(dev->video, O_RDWR | O_NONBLOCK | O_CLOEXEC);
@@ -74,11 +74,11 @@ static int find_device(PmhwCodec codec, M2MDev *dev)
     return -1;
 }
 
-static int m_query(PmhwCodec codec, PmhwCaps *caps)
+static int m_query(PmhwdecCodec codec, PmhwdecCaps *caps)
 {
-    static M2MDev cache[PMHW_CODEC_COUNT];
-    static int tried[PMHW_CODEC_COUNT], found[PMHW_CODEC_COUNT];
-    if (codec >= PMHW_CODEC_COUNT) return -1;
+    static M2MDev cache[PMHWDEC_CODEC_COUNT];
+    static int tried[PMHWDEC_CODEC_COUNT], found[PMHWDEC_CODEC_COUNT];
+    if (codec >= PMHWDEC_CODEC_COUNT) return -1;
     if (!tried[codec]) { tried[codec] = 1; found[codec] = find_device(codec, &cache[codec]) == 0; }
     if (!found[codec]) return -1;
     caps->max_width = cache[codec].max_w;
@@ -92,7 +92,7 @@ static int m_query(PmhwCodec codec, PmhwCaps *caps)
 typedef struct Map { void *p; size_t len; } Map;
 
 typedef struct M {
-    PmhwCodec codec;
+    PmhwdecCodec codec;
     M2MDev dev;
     int fd;
     Map out[OUT_BUFS];
@@ -108,9 +108,9 @@ typedef struct M {
 
 static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }
 
-static void *m_open(PmhwCodec codec, int width, int height)
+static void *m_open(PmhwdecCodec codec, int width, int height)
 {
-    PmhwCaps caps;
+    PmhwdecCaps caps;
     if (m_query(codec, &caps) || width > caps.max_width || height > caps.max_height) return NULL;
     M *m = calloc(1, sizeof *m);
     if (!m) return NULL;
@@ -288,13 +288,13 @@ static void pump(M *m)
 static int m_send(void *ctx, const uint8_t *data, int size, int64_t pts)
 {
     M *m = ctx;
-    if (m->unsupported) return PMHW_UNSUPPORTED;
+    if (m->unsupported) return PMHWDEC_UNSUPPORTED;
     pump(m);
     if (!data || size <= 0) {
         struct v4l2_decoder_cmd cmd = { .cmd = V4L2_DEC_CMD_STOP };
         xioctl(m->fd, VIDIOC_DECODER_CMD, &cmd);
         m->eos_sent = 1;
-        return PMHW_OK;
+        return PMHWDEC_OK;
     }
     int i = 0;
     while (i < m->nout && m->out_busy[i]) i++;
@@ -308,16 +308,16 @@ static int m_send(void *ctx, const uint8_t *data, int size, int64_t pts)
             else if (t - m->waiting_since > 3.0) {
                 ERR("v4l2m2m: the decoder did not start on this stream (unsupported, e.g. 10-bit)");
                 m->unsupported = 1;
-                return PMHW_UNSUPPORTED;
+                return PMHWDEC_UNSUPPORTED;
             }
         } else if (m->last_progress && t - m->last_progress > 5.0) {
             ERR("v4l2m2m: the decoder makes no progress");
             m->last_progress = t;
-            return PMHW_ERROR;
+            return PMHWDEC_ERROR;
         }
-        return PMHW_AGAIN;
+        return PMHWDEC_AGAIN;
     }
-    if ((size_t)size > m->out[i].len) { ERR("v4l2m2m: access unit of %d bytes too big", size); return PMHW_ERROR; }
+    if ((size_t)size > m->out[i].len) { ERR("v4l2m2m: access unit of %d bytes too big", size); return PMHWDEC_ERROR; }
     memcpy(m->out[i].p, data, size);
     struct v4l2_plane pl = { .bytesused = size, .length = m->out[i].len };
     struct v4l2_buffer b = { .type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE, .memory = V4L2_MEMORY_MMAP, .index = i,
@@ -325,12 +325,12 @@ static int m_send(void *ctx, const uint8_t *data, int size, int64_t pts)
     int64_t t = pts < 0 ? 0 : pts;                    /* pts travels in the buffer timestamp (copied to the capture side) */
     b.timestamp.tv_sec = t / 1000000;
     b.timestamp.tv_usec = t % 1000000;
-    if (xioctl(m->fd, VIDIOC_QBUF, &b)) { ERR("v4l2m2m: QBUF output: %s", strerror(errno)); return PMHW_ERROR; }
+    if (xioctl(m->fd, VIDIOC_QBUF, &b)) { ERR("v4l2m2m: QBUF output: %s", strerror(errno)); return PMHWDEC_ERROR; }
     m->out_busy[i] = 1;
-    return PMHW_OK;
+    return PMHWDEC_OK;
 }
 
-static int m_get(void *ctx, PmhwPicture *pic)
+static int m_get(void *ctx, PmhwdecPicture *pic)
 {
     M *m = ctx;
     double deadline = now() + 2.0;
@@ -359,7 +359,7 @@ static int m_get(void *ctx, PmhwPicture *pic)
                 memset(pic, 0, sizeof *pic);
                 pic->width = m->vis_w; pic->height = m->vis_h;
                 pic->left = m->vis_x; pic->top = m->vis_y;
-                pic->format = PMHW_FMT_NV12;
+                pic->format = PMHWDEC_FMT_NV12;
                 pic->plane[0] = base;
                 pic->plane[1] = base + m->uv_off;
                 pic->stride[0] = m->bpl; pic->stride[1] = m->uv_bpl;
@@ -380,7 +380,7 @@ static int m_get(void *ctx, PmhwPicture *pic)
     }
 }
 
-static void m_put(void *ctx, PmhwPicture *pic)
+static void m_put(void *ctx, PmhwdecPicture *pic)
 {
     M *m = ctx;
     int i = (int)(intptr_t)pic->priv - 1;
@@ -423,4 +423,4 @@ static void m_close(void *ctx)
     free(m);
 }
 
-const Backend pmhw_v4l2m2m_backend = { "v4l2m2m", m_query, m_open, m_send, m_get, m_put, m_flush, m_close };
+const Backend pmhwdec_v4l2m2m_backend = { "v4l2m2m", m_query, m_open, m_send, m_get, m_put, m_flush, m_close };

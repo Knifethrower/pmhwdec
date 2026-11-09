@@ -3,7 +3,7 @@
  * next to libpmhwdec and dlopen()ed: no hard dependency). MPP parses and reorders itself, so this is a stream
  * backend: access units in, frames out in display order. Covers the legacy 4.4 vcodec nodes (vpu_service, rkvdec,
  * hevc_service: RK3326, RK3399) and 4.19+ mpp_service (RK3566, RK3588).
- * 10-bit output (MPP's packed NV15) is not converted yet: such streams return PMHW_UNSUPPORTED. */
+ * 10-bit output (MPP's packed NV15) is not converted yet: such streams return PMHWDEC_UNSUPPORTED. */
 #define _GNU_SOURCE                     /* dladdr */
 #include <dlfcn.h>
 #include <errno.h>
@@ -91,10 +91,10 @@ static int load_mpp(void)
     return 1;
 }
 
-static MppCodingType coding(PmhwCodec c)
+static MppCodingType coding(PmhwdecCodec c)
 {
-    return c == PMHW_CODEC_H264 ? MPP_VIDEO_CodingAVC : c == PMHW_CODEC_HEVC ? MPP_VIDEO_CodingHEVC :
-           c == PMHW_CODEC_VP8 ? MPP_VIDEO_CodingVP8 : MPP_VIDEO_CodingVP9;
+    return c == PMHWDEC_CODEC_H264 ? MPP_VIDEO_CodingAVC : c == PMHWDEC_CODEC_HEVC ? MPP_VIDEO_CodingHEVC :
+           c == PMHWDEC_CODEC_VP8 ? MPP_VIDEO_CodingVP8 : MPP_VIDEO_CodingVP9;
 }
 
 static int soc_is_rk3326(void)
@@ -114,9 +114,9 @@ static int soc_is_rk3326(void)
     return known;
 }
 
-static int rk_query(PmhwCodec codec, PmhwCaps *caps)
+static int rk_query(PmhwdecCodec codec, PmhwdecCaps *caps)
 {
-    if (codec == PMHW_CODEC_VP9) return -1;                                /* VP9: later */
+    if (codec == PMHWDEC_CODEC_VP9) return -1;                                /* VP9: later */
     int node = 0;
     const char *denied = NULL;
     for (int i = 0; nodes[i]; i++) {
@@ -132,7 +132,7 @@ static int rk_query(PmhwCodec codec, PmhwCaps *caps)
     caps->max_height = 2304;
     /* 10-bit HEVC: NV15 -> NV12 in rk_get. Not on RK3326 / PX30: its HEVC block is Main only, MPP takes Main 10 there
      * but every picture comes out wrong (R36S 2GB, 2026-10-30) */
-    caps->max_bit_depth = codec == PMHW_CODEC_HEVC && !soc_is_rk3326() ? 10 : 8;
+    caps->max_bit_depth = codec == PMHWDEC_CODEC_HEVC && !soc_is_rk3326() ? 10 : 8;
     caps->backend = "rkmpp";
     return 0;
 }
@@ -142,7 +142,7 @@ static int rk_query(PmhwCodec codec, PmhwCaps *caps)
 typedef struct Held { MppFrame f; int conv; } Held;   /* what pic->priv points at */
 
 typedef struct Rk {
-    PmhwCodec codec;
+    PmhwdecCodec codec;
     MppCtx ctx;
     MppApi *mpi;
     MppBufferGroup group;
@@ -187,9 +187,9 @@ static int conv_get(Rk *r, size_t size)
 
 static double now(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }
 
-static void *rk_open(PmhwCodec codec, int width, int height)
+static void *rk_open(PmhwdecCodec codec, int width, int height)
 {
-    PmhwCaps caps;
+    PmhwdecCaps caps;
     if (rk_query(codec, &caps)) return NULL;
     if (width > caps.max_width || height > caps.max_height) return NULL;
     Rk *r = calloc(1, sizeof *r);
@@ -207,20 +207,20 @@ static void *rk_open(PmhwCodec codec, int width, int height)
 static int rk_send(void *ctx, const uint8_t *data, int size, int64_t pts)
 {
     Rk *r = ctx;
-    if (r->unsupported) return PMHW_UNSUPPORTED;
+    if (r->unsupported) return PMHWDEC_UNSUPPORTED;
     MppPacket pkt = NULL;
     if (!data || size <= 0) {
-        if (M.packet_init(&pkt, NULL, 0) != MPP_OK) return PMHW_ERROR;
+        if (M.packet_init(&pkt, NULL, 0) != MPP_OK) return PMHWDEC_ERROR;
         M.packet_set_eos(pkt);
         r->eos_sent = 1;
     } else {
-        if (M.packet_init(&pkt, (void *)data, size) != MPP_OK) return PMHW_ERROR;
+        if (M.packet_init(&pkt, (void *)data, size) != MPP_OK) return PMHWDEC_ERROR;
         M.packet_set_pts(pkt, pts);
     }
     MPP_RET ret = r->mpi->decode_put_packet(r->ctx, pkt);
     M.packet_deinit(&pkt);
-    if (ret == MPP_ERR_BUFFER_FULL) { usleep(1000); return PMHW_AGAIN; }   /* MPP copies the data: resend later */
-    return ret == MPP_OK ? PMHW_OK : PMHW_ERROR;
+    if (ret == MPP_ERR_BUFFER_FULL) { usleep(1000); return PMHWDEC_AGAIN; }   /* MPP copies the data: resend later */
+    return ret == MPP_OK ? PMHWDEC_OK : PMHWDEC_ERROR;
 }
 
 static int info_change(Rk *r, MppFrame f)
@@ -232,7 +232,7 @@ static int info_change(Rk *r, MppFrame f)
     if (r->nv15 && soc_is_rk3326()) {
         ERR("rkmpp: 10-bit HEVC is not decoded correctly on RK3326: use software");
         r->unsupported = 1;
-    } else if (r->nv15 && !pmhw_selftest_depth_allowed("rkmpp", PMHW_CODEC_HEVC, 10)) {
+    } else if (r->nv15 && !pmhwdec_selftest_depth_allowed("rkmpp", PMHWDEC_CODEC_HEVC, 10)) {
         ERR("rkmpp: 10-bit HEVC failed the self-test on this chip: use software");
         r->unsupported = 1;
     }
@@ -252,7 +252,7 @@ static int info_change(Rk *r, MppFrame f)
     return 0;
 }
 
-static int rk_get(void *ctx, PmhwPicture *pic)
+static int rk_get(void *ctx, PmhwdecPicture *pic)
 {
     Rk *r = ctx;
     double deadline = now() + 2.0;
@@ -276,7 +276,7 @@ static int rk_get(void *ctx, PmhwPicture *pic)
         pic->height = M.frame_height(f);
         pic->left = M.frame_offx(f);
         pic->top = M.frame_offy(f);
-        pic->format = PMHW_FMT_NV12;
+        pic->format = PMHWDEC_FMT_NV12;
         pic->plane[0] = p;
         pic->plane[1] = p + hs * vs;
         pic->stride[0] = pic->stride[1] = hs;
@@ -310,7 +310,7 @@ static int rk_get(void *ctx, PmhwPicture *pic)
     }
 }
 
-static void rk_put(void *ctx, PmhwPicture *pic)
+static void rk_put(void *ctx, PmhwdecPicture *pic)
 {
     Rk *r = ctx;
     Held *held = pic->priv;
@@ -340,4 +340,4 @@ static void rk_close(void *ctx)
     free(r);
 }
 
-const Backend pmhw_rkmpp_backend = { "rkmpp", rk_query, rk_open, rk_send, rk_get, rk_put, rk_flush, rk_close };
+const Backend pmhwdec_rkmpp_backend = { "rkmpp", rk_query, rk_open, rk_send, rk_get, rk_put, rk_flush, rk_close };

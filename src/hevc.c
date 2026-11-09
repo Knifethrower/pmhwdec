@@ -273,7 +273,7 @@ void hevc_reset(SL *s)
 static void geometry(const HevcSps *sps, Geom *g, int *reorder)
 {
     memset(g, 0, sizeof *g);
-    g->codec = PMHW_CODEC_HEVC;
+    g->codec = PMHWDEC_CODEC_HEVC;
     g->width = sps->width; g->height = sps->height;
     g->stride = ALIGN(g->width, 16); g->coded_h = ALIGN(g->height, 16);
     g->vis_x = 2 * sps->conf_l; g->vis_y = 2 * sps->conf_t;
@@ -292,34 +292,34 @@ static void geometry(const HevcSps *sps, Geom *g, int *reorder)
 int hevc_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
 {
     HevcState *h = s->codec_state;
-    if (len < 3) return PMHW_OK;
+    if (len < 3) return PMHWDEC_OK;
     int t = nal[0] >> 1 & 0x3f;
-    if (t != 33 && t != 34 && !(t <= 9) && !(t >= 16 && t <= 21)) return PMHW_OK;
+    if (t != 33 && t != 34 && !(t <= 9) && !(t >= 16 && t <= 21)) return PMHWDEC_OK;
     int n = sl_unescape(s, nal, len);
-    if (n < 0) return PMHW_ERROR;
+    if (n < 0) return PMHWDEC_ERROR;
     Bits b = { s->rbsp, n, 16 };
     if (t == 33 || t == 34) {
         if (t == 33) {
             HevcSps tmp;
             int id = parse_sps(&b, &tmp);
-            if (id < 0) return id == -2 ? PMHW_UNSUPPORTED : PMHW_ERROR;
-            if (!h->sps[id] && !(h->sps[id] = malloc(sizeof tmp))) return PMHW_ERROR;
+            if (id < 0) return id == -2 ? PMHWDEC_UNSUPPORTED : PMHWDEC_ERROR;
+            if (!h->sps[id] && !(h->sps[id] = malloc(sizeof tmp))) return PMHWDEC_ERROR;
             *h->sps[id] = tmp;
         } else {
             HevcPps tmp;
             int id = parse_pps(&b, &tmp);
-            if (id < 0) return id == -2 ? PMHW_UNSUPPORTED : PMHW_ERROR;
-            if (!h->pps[id] && !(h->pps[id] = malloc(sizeof tmp))) return PMHW_ERROR;
+            if (id < 0) return id == -2 ? PMHWDEC_UNSUPPORTED : PMHWDEC_ERROR;
+            if (!h->pps[id] && !(h->pps[id] = malloc(sizeof tmp))) return PMHWDEC_ERROR;
             *h->pps[id] = tmp;
         }
-        return PMHW_OK;
+        return PMHWDEC_OK;
     }
     b.pos = 0;
     HevcSlice *sl = malloc(sizeof *sl);
-    if (!sl) return PMHW_ERROR;
+    if (!sl) return PMHWDEC_ERROR;
     const HevcSps *sps; const HevcPps *pps;
-    int rc = PMHW_OK;
-    if (parse_slice(&b, h, sl, &sps, &pps)) { rc = PMHW_ERROR; goto out; }
+    int rc = PMHWDEC_OK;
+    if (parse_slice(&b, h, sl, &sps, &pps)) { rc = PMHWDEC_ERROR; goto out; }
     if (sl->first) {
         if (s->cur >= 0) hevc_end_picture(s);
         if (s->need_key && !is_irap(t)) goto out;    /* wait for a random access point */
@@ -328,7 +328,7 @@ int hevc_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
         Geom g;
         int reorder;
         geometry(sps, &g, &reorder);
-        if ((rc = sl_configure(s, &g, reorder)) != PMHW_OK) goto out;
+        if ((rc = sl_configure(s, &g, reorder)) != PMHWDEC_OK) goto out;
         int poc;
         if (new_cvs) poc = is_idr(t) ? 0 : sl->poc_lsb;
         else {
@@ -349,7 +349,7 @@ int hevc_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
             for (int p = 0; p < s->nslots; p++) if (!keep[p]) s->slot[p].ref = 0;
         }
         int cur = sl_free_slot(s);
-        if (cur < 0) { s->bump = 1; rc = PMHW_AGAIN; goto out; }
+        if (cur < 0) { s->bump = 1; rc = PMHWDEC_AGAIN; goto out; }
         /* commit */
         if (new_cvs) { s->epoch++; h->skip_rasl = !is_idr(t); }
         else if (is_irap(t)) h->skip_rasl = 0;
@@ -379,7 +379,7 @@ int hevc_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
                       .cur_poc = h->cur_poc, .first_slice = sl->first, .ep_unescaped = h->ep, .nal = nal, .nal_len = len };
         int total = nb + na;
         if (sl->type != HEVC_I) {
-            if (!total) { s->slot[s->cur].corrupt = 1; rc = PMHW_ERROR; goto out; }
+            if (!total) { s->slot[s->cur].corrupt = 1; rc = PMHWDEC_ERROR; goto out; }
             int tmp[32];
             for (int l = 0; l < (sl->type == HEVC_B ? 2 : 1); l++) {
                 int need = sl->num_ref[l] + 1 > total ? sl->num_ref[l] + 1 : total, nt = 0;
@@ -411,7 +411,7 @@ int hevc_nal(SL *s, const uint8_t *nal, int len, int64_t pts)
         }
         int r = s->hw->hevc_slice(s->hwctx, &j);
         if (r) s->slot[s->cur].corrupt = 1;
-        if (r < 0) rc = PMHW_ERROR;
+        if (r < 0) rc = PMHWDEC_ERROR;
     }
 out:
     free(sl);

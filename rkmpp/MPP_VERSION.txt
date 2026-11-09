@@ -1,5 +1,5 @@
 mpp c08762ebfadeb4e986d2fed993bc7a54862d3ebe Tue Aug 11 15:18:04 2026 +0800
 patched: osal/mpp_soc.c read_soc_name() keeps plain rockchip,rkNNNN compatibles (pmhwdec rkmpp/patch_soc_name.py)
 patched: mpp/soc.cmake takes MPP_HW_LIST (pmhwdec rkmpp/patch_hw_list.py)
-patched: encoder framework out of the CMake lists, mpp/codec/pmhw_noenc.c stubs (pmhwdec rkmpp/patch_no_enc.py)
-patched: osal/inc/mpp_debug.h takes PMHW_NO_DBG_LOG (pmhwdec rkmpp/patch_no_dbg_log.py)
+patched: encoder framework out of the CMake lists, mpp/codec/pmhwdec_noenc.c stubs (pmhwdec rkmpp/patch_no_enc.py)
+patched: osal/inc/mpp_debug.h takes PMHWDEC_NO_DBG_LOG (pmhwdec rkmpp/patch_no_dbg_log.py)

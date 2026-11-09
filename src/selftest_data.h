@@ -1379,8 +1379,8 @@ static const uint8_t st_vp8_means[2160] = {
 };
 static const uint32_t st_vp8_adler[6] = { 0xed9b8b4d, 0x1d9880a3, 0x1a608c75, 0x64658fe6, 0x868f8c59, 0xda2290e4 };
 static const struct StClip { const char *name; int codec, depth; const uint8_t *data; const uint32_t *au; int naus; const uint8_t *means; const uint32_t *adler; } st_clips[] = {
-    { "h264", PMHW_CODEC_H264, 8, st_h264_data, st_h264_au, 6, st_h264_means, st_h264_adler },
-    { "hevc", PMHW_CODEC_HEVC, 8, st_hevc_data, st_hevc_au, 6, st_hevc_means, st_hevc_adler },
-    { "hevc10", PMHW_CODEC_HEVC, 10, st_hevc10_data, st_hevc10_au, 6, st_hevc10_means, st_hevc10_adler },
-    { "vp8", PMHW_CODEC_VP8, 8, st_vp8_data, st_vp8_au, 6, st_vp8_means, st_vp8_adler },
+    { "h264", PMHWDEC_CODEC_H264, 8, st_h264_data, st_h264_au, 6, st_h264_means, st_h264_adler },
+    { "hevc", PMHWDEC_CODEC_HEVC, 8, st_hevc_data, st_hevc_au, 6, st_hevc_means, st_hevc_adler },
+    { "hevc10", PMHWDEC_CODEC_HEVC, 10, st_hevc10_data, st_hevc10_au, 6, st_hevc10_means, st_hevc10_adler },
+    { "vp8", PMHWDEC_CODEC_VP8, 8, st_vp8_data, st_vp8_au, 6, st_vp8_means, st_vp8_adler },
 };

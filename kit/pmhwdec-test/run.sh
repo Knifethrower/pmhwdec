@@ -41,9 +41,9 @@ for f in seq_p_cavlc.h264 seq_b_pyramid.h264 seq_720p_temporal.h264 h264_slices.
          hevc_intra.hevc hevc_pb.hevc hevc_pb_wpp.hevc hevc_slices.hevc hevc_720p_10bit.hevc bbb8.hevc bbb10.hevc; do
     c=${f%.*}
     [ -f "$K/clips/$f" ] || continue
-    PMHWDEC_LOG=1 timeout 120 "$K/pmhwdec-test" "$K/clips/$f" > /tmp/pmhwkit.log 2> /tmp/pmhwkit.err
+    PMHWDEC_LOG=1 timeout 120 "$K/pmhwdec-test" "$K/clips/$f" > /tmp/pmhwdec-kit.log 2> /tmp/pmhwdec-kit.err
     rc=$?
-    res=$(grep '^RESULT' /tmp/pmhwkit.log | sed 's/ send_errors.*per frame:/,/')
+    res=$(grep '^RESULT' /tmp/pmhwdec-kit.log | sed 's/ send_errors.*per frame:/,/')
     [ -n "$res" ] || res="RESULT none (exit code $rc)"
     if [ -f "$K/clips/$c.ref.crc" ]; then
         exact=$(awk '
@@ -53,14 +53,14 @@ for f in seq_p_cavlc.h264 seq_b_pyramid.h264 seq_720p_temporal.h264 h264_slices.
                 m = r < o ? r : o; bad = 0
                 for (i = 0; i < m; i++) if (ref[i] != ours[i]) bad++
                 printf "%d of %d frames bit-exact (%d decoded, %d in the reference)", m - bad, m, o, r
-            }' "$K/clips/$c.ref.crc" /tmp/pmhwkit.log)
+            }' "$K/clips/$c.ref.crc" /tmp/pmhwdec-kit.log)
     else
         exact="10-bit: no reference here (the self-test checks it)"
     fi
     printf "%-20s %s | %s\n" "$c" "$res" "$exact"
-    grep -m3 -vE "^pmhwdec: (using|cedar: engine|cedar: [0-9]|cedar: picture buffers|self-test .*: OK)" /tmp/pmhwkit.err | sed 's/^/    /'
+    grep -m3 -vE "^pmhwdec: (using|cedar: engine|cedar: [0-9]|cedar: picture buffers|self-test .*: OK)" /tmp/pmhwdec-kit.err | sed 's/^/    /'
 done
-rm -f /tmp/pmhwkit.log /tmp/pmhwkit.err
+rm -f /tmp/pmhwdec-kit.log /tmp/pmhwdec-kit.err
 
 line "kernel messages about the decoder (last 15)"
 dmesg 2>/dev/null | grep -iE "vpu|vdec|mpp|cedar|hantro|rkvdec|venus|iris|v4l2|oops|paging request" | tail -15

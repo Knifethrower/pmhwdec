@@ -40,15 +40,15 @@ static FILE *dump;
 static int dump_left;
 static uint8_t *copybuf;
 
-static void drain(PmhwDecoder *d)
+static void drain(PmhwdecDecoder *d)
 {
-    PmhwPicture pic;
+    PmhwdecPicture pic;
     for (;;) {
         double t0 = now();
-        int r = pmhw_get(d, &pic);
+        int r = pmhwdec_get(d, &pic);
         get_time += now() - t0;
         if (r != 1) break;
-        if (speed_only) { frames++; pmhw_put(d, &pic); continue; }   /* -s: decode throughput only */
+        if (speed_only) { frames++; pmhwdec_put(d, &pic); continue; }   /* -s: decode throughput only */
         /* copy-out, as a CPU consumer would do it (whole rows from possibly uncached memory) */
         t0 = now();
         int w = pic.width, h = pic.height;
@@ -60,7 +60,7 @@ static void drain(PmhwDecoder *d)
         if (dump && dump_left > 0) { fwrite(copybuf, 1, w * h * 3 / 2, dump); dump_left--; }
         printf("FRAME %d 0 %d pts %lld %dx%d%s adler=%08x\n", frames, frames, (long long)pic.pts, w, h, pic.corrupt ? " CORRUPT" : "", ad);
         frames++;
-        pmhw_put(d, &pic);
+        pmhwdec_put(d, &pic);
     }
 }
 
@@ -75,9 +75,9 @@ static void print_result(int errors, int aus, int agains, double send_time, doub
 /* VP8 in IVF: a 32-byte file header (its length at offset 6), then a 12-byte header before each frame */
 static int run_ivf(const uint8_t *f, long n, int max_au)
 {
-    PmhwDecoder *d = pmhw_open(PMHW_CODEC_VP8, 0, 0);
+    PmhwdecDecoder *d = pmhwdec_open(PMHWDEC_CODEC_VP8, 0, 0);
     if (!d) { printf("RESULT NOHW no hardware decoder\n"); return 1; }
-    printf("backend %s\n", pmhw_backend_name(d));
+    printf("backend %s\n", pmhwdec_backend_name(d));
     double send_time = 0, t_start = now();
     int aus = 0, errors = 0, agains = 0;
     for (long pos = f[6] | f[7] << 8; pos + 12 <= n && aus < max_au;) {
@@ -85,7 +85,7 @@ static int run_ivf(const uint8_t *f, long n, int max_au)
         if (pos + 12 + len > n) break;
         double t0 = now();
         int r, stuck = 0, before = frames;
-        while ((r = pmhw_send(d, f + pos + 12, (int)len, aus)) == PMHW_AGAIN) {
+        while ((r = pmhwdec_send(d, f + pos + 12, (int)len, aus)) == PMHWDEC_AGAIN) {
             send_time += now() - t0;
             agains++;
             drain(d);
@@ -93,20 +93,20 @@ static int run_ivf(const uint8_t *f, long n, int max_au)
             t0 = now();
         }
         send_time += now() - t0;
-        if (r == PMHW_UNSUPPORTED) {
+        if (r == PMHWDEC_UNSUPPORTED) {
             printf("RESULT UNSUPPORTED after %d access units, %d frames (use software for this stream)\n", aus, frames);
-            pmhw_close(d);
+            pmhwdec_close(d);
             return 3;
         }
-        if (r != PMHW_OK) errors++;
+        if (r != PMHWDEC_OK) errors++;
         aus++;
         drain(d);
         pos += 12 + len;
     }
-    pmhw_send(d, NULL, 0, 0);
+    pmhwdec_send(d, NULL, 0, 0);
     drain(d);
     double total = now() - t_start;
-    pmhw_close(d);
+    pmhwdec_close(d);
     if (dump) fclose(dump);
     print_result(errors, aus, agains, send_time, total);
     return errors ? 1 : 0;
@@ -128,9 +128,9 @@ int main(int argc, char **argv)
     }
     if (query) {
         const char *names[] = { "H.264", "HEVC", "VP9", "VP8" };
-        for (int c = 0; c < PMHW_CODEC_COUNT; c++) {
-            PmhwCaps caps;
-            if (pmhw_query(c, &caps)) printf("%s: no hardware\n", names[c]);
+        for (int c = 0; c < PMHWDEC_CODEC_COUNT; c++) {
+            PmhwdecCaps caps;
+            if (pmhwdec_query(c, &caps)) printf("%s: no hardware\n", names[c]);
             else printf("%s: %s, up to %dx%d, %d-bit\n", names[c], caps.backend, caps.max_width, caps.max_height, caps.max_bit_depth);
         }
         return 0;
@@ -149,9 +149,9 @@ int main(int argc, char **argv)
     copybuf = malloc(4096 * 2304 * 3 / 2);
     if (n > 32 && !memcmp(es, "DKIF", 4)) return run_ivf(es, n, max_au);
 
-    PmhwDecoder *d = pmhw_open(hevc ? PMHW_CODEC_HEVC : PMHW_CODEC_H264, 0, 0);
+    PmhwdecDecoder *d = pmhwdec_open(hevc ? PMHWDEC_CODEC_HEVC : PMHWDEC_CODEC_H264, 0, 0);
     if (!d) { printf("RESULT NOHW no hardware decoder\n"); return 1; }
-    printf("backend %s\n", pmhw_backend_name(d));
+    printf("backend %s\n", pmhwdec_backend_name(d));
 
     /* NAL units: start code position (incl. a 4th zero byte) and payload position */
     long cap = 1024, cnt = 0, *st = malloc(cap * sizeof *st), *pay = malloc(cap * sizeof *pay);
@@ -177,7 +177,7 @@ int main(int argc, char **argv)
             double t0 = now();
             int r;
             int stuck = 0, before = frames;
-            while ((r = pmhw_send(d, es + au_begin, (int)(end - au_begin), aus)) == PMHW_AGAIN) {
+            while ((r = pmhwdec_send(d, es + au_begin, (int)(end - au_begin), aus)) == PMHWDEC_AGAIN) {
                 send_time += now() - t0;
                 agains++;
                 drain(d);
@@ -185,12 +185,12 @@ int main(int argc, char **argv)
                 t0 = now();
             }
             send_time += now() - t0;
-            if (r == PMHW_UNSUPPORTED) {
+            if (r == PMHWDEC_UNSUPPORTED) {
                 printf("RESULT UNSUPPORTED after %d access units, %d frames (use software for this stream)\n", aus, frames);
-                pmhw_close(d);
+                pmhwdec_close(d);
                 return 3;
             }
-            if (r != PMHW_OK) errors++;
+            if (r != PMHWDEC_OK) errors++;
             aus++;
             drain(d);
             au_begin = end;
@@ -198,10 +198,10 @@ int main(int argc, char **argv)
         }
         if (k < cnt && is_vcl(hevc, es + pay[k])) has_vcl = 1;
     }
-    pmhw_send(d, NULL, 0, 0);
+    pmhwdec_send(d, NULL, 0, 0);
     drain(d);
     double total = now() - t_start;
-    pmhw_close(d);
+    pmhwdec_close(d);
     if (dump) fclose(dump);
     print_result(errors, aus, agains, send_time, total);
     return errors ? 1 : 0;

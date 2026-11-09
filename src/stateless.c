@@ -17,18 +17,18 @@ int sl_free_slot(SL *s)
 int sl_configure(SL *s, const Geom *g, int reorder)
 {
     Geom want = *g;
-    if (s->configured && !memcmp(&want, &s->geom, sizeof want)) { s->reorder = reorder; return PMHW_OK; }
-    PmhwCaps caps;
+    if (s->configured && !memcmp(&want, &s->geom, sizeof want)) { s->reorder = reorder; return PMHWDEC_OK; }
+    PmhwdecCaps caps;
     if (s->hw->query(s->codec, &caps) || want.bit_depth > caps.max_bit_depth || want.width > caps.max_width ||
-        want.height > caps.max_height || !pmhw_selftest_depth_allowed(s->hw->name, s->codec, want.bit_depth)) {
+        want.height > caps.max_height || !pmhwdec_selftest_depth_allowed(s->hw->name, s->codec, want.bit_depth)) {
         ERR("%s: %dx%d %d-bit is beyond this chip (%dx%d, %d-bit)", s->hw->name, want.width, want.height, want.bit_depth,
             caps.max_width, caps.max_height, caps.max_bit_depth);
-        return PMHW_UNSUPPORTED;
+        return PMHWDEC_UNSUPPORTED;
     }
     for (int i = 0; i < s->nslots; i++)
-        if (s->slot[i].queued || s->slot[i].held) { s->bump = 1; s->eos = 1; return PMHW_AGAIN; }   /* drain first */
+        if (s->slot[i].queued || s->slot[i].held) { s->bump = 1; s->eos = 1; return PMHWDEC_AGAIN; }   /* drain first */
     s->eos = 0;
-    if (s->hw->configure(s->hwctx, &want)) { s->configured = 0; return PMHW_ERROR; }
+    if (s->hw->configure(s->hwctx, &want)) { s->configured = 0; return PMHWDEC_ERROR; }
     memset(s->slot, 0, sizeof s->slot);
     s->nslots = want.nslots;
     s->geom = want;
@@ -37,7 +37,7 @@ int sl_configure(SL *s, const Geom *g, int reorder)
     s->cur = -1;
     LOG("%s: %dx%d (visible %dx%d at %d,%d), %d-bit, %d buffers, reorder %d", s->hw->name, want.width, want.height,
         want.vis_w, want.vis_h, want.vis_x, want.vis_y, want.bit_depth, want.nslots, reorder);
-    return PMHW_OK;
+    return PMHWDEC_OK;
 }
 
 void sl_queue(SL *s, int slot)
@@ -68,9 +68,9 @@ int sl_unescape(SL *s, const uint8_t *src, int n)
 /* ---------------- Backend implementation ---------------- */
 typedef struct { Backend be; const HwOps *ops; } StatelessBackend;
 
-static void *sl_open(const HwOps *ops, PmhwCodec codec, int width, int height)
+static void *sl_open(const HwOps *ops, PmhwdecCodec codec, int width, int height)
 {
-    PmhwCaps caps;
+    PmhwdecCaps caps;
     if (ops->query(codec, &caps)) return NULL;
     if (width > caps.max_width || height > caps.max_height) { LOG("%s: %dx%d is too big", ops->name, width, height); return NULL; }
     SL *s = calloc(1, sizeof *s);
@@ -81,8 +81,8 @@ static void *sl_open(const HwOps *ops, PmhwCodec codec, int width, int height)
     s->need_key = 1;
     s->hwctx = ops->open(codec);
     if (!s->hwctx) { free(s); return NULL; }
-    s->codec_state = codec == PMHW_CODEC_H264 ? h264_new() : codec == PMHW_CODEC_HEVC ? hevc_new() :
-                     codec == PMHW_CODEC_VP8 ? vp8_new() : NULL;
+    s->codec_state = codec == PMHWDEC_CODEC_H264 ? h264_new() : codec == PMHWDEC_CODEC_HEVC ? hevc_new() :
+                     codec == PMHWDEC_CODEC_VP8 ? vp8_new() : NULL;
     if (!s->codec_state) { ops->close(s->hwctx); free(s); return NULL; }
     return s;
 }
@@ -90,32 +90,32 @@ static void *sl_open(const HwOps *ops, PmhwCodec codec, int width, int height)
 static void end_picture(SL *s)
 {
     if (s->cur < 0) return;
-    if (s->codec == PMHW_CODEC_H264) h264_end_picture(s); else hevc_end_picture(s);
+    if (s->codec == PMHWDEC_CODEC_H264) h264_end_picture(s); else hevc_end_picture(s);
 }
 
 static int sl_send(void *ctx, const uint8_t *data, int size, int64_t pts)
 {
     SL *s = ctx;
-    if (!data || size <= 0) { end_picture(s); s->eos = 1; return PMHW_OK; }
+    if (!data || size <= 0) { end_picture(s); s->eos = 1; return PMHWDEC_OK; }
     if (s->eos) s->eos = 0;
-    if (s->codec == PMHW_CODEC_VP8) return vp8_frame(s, data, size, pts);   /* no NAL units: one frame per call */
-    int rc = PMHW_OK;
+    if (s->codec == PMHWDEC_CODEC_VP8) return vp8_frame(s, data, size, pts);   /* no NAL units: one frame per call */
+    int rc = PMHWDEC_OK;
     for (int i = 0; i + 3 <= size;) {
         if (!(data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1)) { i++; continue; }
         int st = i + 3, e = st;
         while (e + 3 <= size && !(data[e] == 0 && data[e + 1] == 0 && (data[e + 2] == 1 || (e + 3 < size && data[e + 2] == 0 && data[e + 3] == 1)))) e++;
         if (e + 3 > size) e = size;
         i = e;
-        int r = s->codec == PMHW_CODEC_H264 ? h264_nal(s, data + st, e - st, pts) : hevc_nal(s, data + st, e - st, pts);
-        if (r == PMHW_AGAIN) return PMHW_AGAIN;    /* nothing of this picture was decoded yet: caller resends */
-        if (r == PMHW_UNSUPPORTED) return r;
-        if (r == PMHW_ERROR) rc = PMHW_ERROR;
+        int r = s->codec == PMHWDEC_CODEC_H264 ? h264_nal(s, data + st, e - st, pts) : hevc_nal(s, data + st, e - st, pts);
+        if (r == PMHWDEC_AGAIN) return PMHWDEC_AGAIN;    /* nothing of this picture was decoded yet: caller resends */
+        if (r == PMHWDEC_UNSUPPORTED) return r;
+        if (r == PMHWDEC_ERROR) rc = PMHWDEC_ERROR;
     }
     end_picture(s);
     return rc;
 }
 
-static int sl_get(void *ctx, PmhwPicture *pic)
+static int sl_get(void *ctx, PmhwdecPicture *pic)
 {
     SL *s = ctx;
     int best = -1, n = 0, min_epoch = 1 << 30;
@@ -143,7 +143,7 @@ static int sl_get(void *ctx, PmhwPicture *pic)
     return 1;
 }
 
-static void sl_put(void *ctx, PmhwPicture *pic)
+static void sl_put(void *ctx, PmhwdecPicture *pic)
 {
     SL *s = ctx;
     int i = (int)(intptr_t)pic->priv - 1;
@@ -158,14 +158,14 @@ static void sl_flush(void *ctx)
     s->cur = -1;
     s->eos = s->bump = 0;
     s->need_key = 1;
-    if (s->codec == PMHW_CODEC_H264) h264_reset(s); else if (s->codec == PMHW_CODEC_VP8) vp8_reset(s); else hevc_reset(s);
+    if (s->codec == PMHWDEC_CODEC_H264) h264_reset(s); else if (s->codec == PMHWDEC_CODEC_VP8) vp8_reset(s); else hevc_reset(s);
 }
 
 static void sl_close(void *ctx)
 {
     SL *s = ctx;
     if (!s) return;
-    if (s->codec == PMHW_CODEC_H264) h264_free(s->codec_state); else if (s->codec == PMHW_CODEC_VP8) vp8_free(s->codec_state); else hevc_free(s->codec_state);
+    if (s->codec == PMHWDEC_CODEC_H264) h264_free(s->codec_state); else if (s->codec == PMHWDEC_CODEC_VP8) vp8_free(s->codec_state); else hevc_free(s->codec_state);
     s->hw->close(s->hwctx);
     free(s->rbsp); free(s->epb);
     free(s);
@@ -177,13 +177,13 @@ static StatelessBackend tab[MAX_STATELESS];
 static int ntab;
 
 #define TRAMP(n) \
-    static int q##n(PmhwCodec c, PmhwCaps *caps) { return tab[n].ops->query(c, caps); } \
-    static void *o##n(PmhwCodec c, int w, int h) { return sl_open(tab[n].ops, c, w, h); }
+    static int q##n(PmhwdecCodec c, PmhwdecCaps *caps) { return tab[n].ops->query(c, caps); } \
+    static void *o##n(PmhwdecCodec c, int w, int h) { return sl_open(tab[n].ops, c, w, h); }
 TRAMP(0) TRAMP(1) TRAMP(2) TRAMP(3)
-static int (*const qs[MAX_STATELESS])(PmhwCodec, PmhwCaps *) = { q0, q1, q2, q3 };
-static void *(*const os[MAX_STATELESS])(PmhwCodec, int, int) = { o0, o1, o2, o3 };
+static int (*const qs[MAX_STATELESS])(PmhwdecCodec, PmhwdecCaps *) = { q0, q1, q2, q3 };
+static void *(*const os[MAX_STATELESS])(PmhwdecCodec, int, int) = { o0, o1, o2, o3 };
 
-const Backend *pmhw_stateless_backend(const HwOps *ops)
+const Backend *pmhwdec_stateless_backend(const HwOps *ops)
 {
     for (int i = 0; i < ntab; i++) if (tab[i].ops == ops) return &tab[i].be;
     if (ntab == MAX_STATELESS) return NULL;

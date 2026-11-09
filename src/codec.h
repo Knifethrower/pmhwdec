@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* Parsed H.264 / HEVC syntax handed from the codec layers to the stateless hardware backends.
  * Roughly the V4L2 stateless controls (v4l2-controls.h), so a v4l2req backend can be fed from the same jobs. */
-#ifndef PMHW_CODEC_H
-#define PMHW_CODEC_H
+#ifndef PMHWDEC_CODEC_H
+#define PMHWDEC_CODEC_H
 #include <stdint.h>
 #include "internal.h"
 

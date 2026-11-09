@@ -2,7 +2,7 @@
 /* VP8 for the stateless backends: parses the frame header (RFC 6386, sections 9 and 19.2), keeps the state that
  * lasts from frame to frame (probabilities, segment and loop filter settings, the three reference frames) and hands
  * one job per frame to the hardware. VP8 has no reordering: pictures come out in decoding order, hidden (alt-ref)
- * frames are decoded and not shown. Input: one VP8 frame per pmhw_send(), as stored in WebM or IVF. */
+ * frames are decoded and not shown. Input: one VP8 frame per pmhwdec_send(), as stored in WebM or IVF. */
 #include <stdlib.h>
 #include <string.h>
 #include "codec.h"
@@ -217,7 +217,7 @@ static void update_refs(SL *s, Vp8State *v, const Vp8Hdr *h, int cur)
 int vp8_frame(SL *s, const uint8_t *d, int size, int64_t pts)
 {
     Vp8State *v = s->codec_state;
-    if (size < 3) return PMHW_ERROR;
+    if (size < 3) return PMHWDEC_ERROR;
     uint32_t tag = d[0] | d[1] << 8 | (uint32_t)d[2] << 16;
     Vp8Hdr h;
     memset(&h, 0, sizeof h);
@@ -226,19 +226,19 @@ int vp8_frame(SL *s, const uint8_t *d, int size, int64_t pts)
     h.show = tag >> 4 & 1;
     h.first_part_size = tag >> 5;
     h.header_size = h.key ? 10 : 3;
-    if (h.version > 3) { ERR("vp8: bitstream version %d is not defined", h.version); return PMHW_UNSUPPORTED; }
-    if (size < h.header_size || h.first_part_size > size - h.header_size) return PMHW_ERROR;
-    if (s->need_key && !h.key) return PMHW_OK;  /* wait for a key frame */
+    if (h.version > 3) { ERR("vp8: bitstream version %d is not defined", h.version); return PMHWDEC_UNSUPPORTED; }
+    if (size < h.header_size || h.first_part_size > size - h.header_size) return PMHWDEC_ERROR;
+    if (s->need_key && !h.key) return PMHWDEC_OK;  /* wait for a key frame */
     if (h.key) {
-        if (d[3] != 0x9d || d[4] != 0x01 || d[5] != 0x2a) return PMHW_ERROR;
+        if (d[3] != 0x9d || d[4] != 0x01 || d[5] != 0x2a) return PMHWDEC_ERROR;
         h.width = (d[6] | d[7] << 8) & 0x3fff;
         h.height = (d[8] | d[9] << 8) & 0x3fff;
         h.hscale = d[7] >> 6;
         h.vscale = d[9] >> 6;
-        if (!h.width || !h.height) return PMHW_ERROR;
+        if (!h.width || !h.height) return PMHWDEC_ERROR;
         Geom g;
         memset(&g, 0, sizeof g);
-        g.codec = PMHW_CODEC_VP8;
+        g.codec = PMHWDEC_CODEC_VP8;
         g.width = ALIGN(h.width, 16);
         g.height = ALIGN(h.height, 16);
         g.stride = g.width;
@@ -248,20 +248,20 @@ int vp8_frame(SL *s, const uint8_t *d, int size, int64_t pts)
         g.bit_depth = 8;
         g.nslots = 4 + SL_EXTRA_SLOTS + 1;      /* three references, the new frame, the caller's, one to spare */
         int rc = sl_configure(s, &g, 0);
-        if (rc != PMHW_OK) return rc;           /* nothing has changed yet: PMHW_AGAIN resends this frame */
+        if (rc != PMHWDEC_OK) return rc;           /* nothing has changed yet: PMHWDEC_AGAIN resends this frame */
         vp8_reset(s);
     }
-    if (!s->configured) return PMHW_ERROR;
+    if (!s->configured) return PMHWDEC_ERROR;
     h.width = s->geom.vis_w;
     h.height = s->geom.vis_h;
     int cur = sl_free_slot(s);
-    if (cur < 0) { s->bump = 1; return PMHW_AGAIN; }
+    if (cur < 0) { s->bump = 1; return PMHWDEC_AGAIN; }
     parse_header(v, &h, d + h.header_size, h.first_part_size);
-    if (partitions(&h, d, size)) { s->need_key = 1; return PMHW_ERROR; }
+    if (partitions(&h, d, size)) { s->need_key = 1; return PMHWDEC_ERROR; }
     Vp8Job j = { .h = &h, .slots = s->slot, .nslots = s->nslots, .cur = cur, .last = v->last, .golden = v->golden,
                  .alt = v->alt, .data = d, .len = size };
     int r = s->hw->vp8_frame(s->hwctx, &j);
-    if (r < 0) { s->need_key = 1; return PMHW_ERROR; }
+    if (r < 0) { s->need_key = 1; return PMHWDEC_ERROR; }
     s->need_key = 0;
     Slot *t = &s->slot[cur];
     t->corrupt = r > 0;
@@ -269,5 +269,5 @@ int vp8_frame(SL *s, const uint8_t *d, int size, int64_t pts)
     t->poc = v->count++;
     update_refs(s, v, &h, cur);
     if (h.show) sl_queue(s, cur);
-    return r > 0 ? PMHW_ERROR : PMHW_OK;
+    return r > 0 ? PMHWDEC_ERROR : PMHWDEC_OK;
 }

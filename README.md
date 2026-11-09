@@ -44,22 +44,22 @@ and compared against FFmpeg's output (8x8 block means) before a backend is used,
 `include/pmhwdec.h` (MIT):
 
 ```c
-PmhwDecoder *d = pmhw_open(PMHW_CODEC_HEVC, width, height);   // NULL: no hardware, use software
-while ((r = pmhw_send(d, data, size, pts)) == PMHW_AGAIN)      // Annex-B access units in
+PmhwdecDecoder *d = pmhwdec_open(PMHWDEC_CODEC_HEVC, width, height);   // NULL: no hardware, use software
+while ((r = pmhwdec_send(d, data, size, pts)) == PMHWDEC_AGAIN)      // Annex-B access units in
     drain();                                                   // all buffers out: hand some back first
-if (r == PMHW_UNSUPPORTED) { /* close it, decode this stream in software */ }
-drain();      // while (pmhw_get(d, &pic) == 1) { use pic (NV12); pmhw_put(d, &pic); }
-pmhw_send(d, NULL, 0, 0); drain();                             // end of stream
+if (r == PMHWDEC_UNSUPPORTED) { /* close it, decode this stream in software */ }
+drain();      // while (pmhwdec_get(d, &pic) == 1) { use pic (NV12); pmhwdec_put(d, &pic); }
+pmhwdec_send(d, NULL, 0, 0); drain();                             // end of stream
 ```
 
-`pmhw_query()` reports what a codec can do here without opening a decoder. `PMHWDEC_LOG=1` logs to stderr,
+`pmhwdec_query()` reports what a codec can do here without opening a decoder. `PMHWDEC_LOG=1` logs to stderr,
 `PMHWDEC_BACKEND=<name>` forces a backend, `PMHWDEC_BACKEND=off` disables them all.
 
 ## Using it
 
-- **FFmpeg / mpv**: `glue/ffmpeg/pmhwdec_ff.c` adds `h264_pmhw` / `hevc_pmhw` decoders that load the library
+- **FFmpeg / mpv**: `glue/ffmpeg/pmhwdec_ff.c` adds `h264_pmhwdec` / `hevc_pmhwdec` decoders that load the library
   at run time and fall back to FFmpeg's own decoders inside.
-- **portmaster-unity**: its media runtime loads `libpmhwdec.so.1` (`UM_PMHW=<path>`) ahead of its software
+- **portmaster-unity**: its media runtime loads `libpmhwdec.so.1` (`UM_PMHWDEC=<path>`) ahead of its software
   decoders, so Unity games' videos play on the hardware where there is one.
 - **Directly**: link or `dlopen` `libpmhwdec.so.1`; ship `pmhwdec-cedard` (Allwinner) and `librockchip_mpp.so`
   (Rockchip) next to it.

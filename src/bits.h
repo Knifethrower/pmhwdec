@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 /* Exp-Golomb bit reader over RBSP (emulation prevention bytes already removed). */
-#ifndef PMHW_BITS_H
-#define PMHW_BITS_H
+#ifndef PMHWDEC_BITS_H
+#define PMHWDEC_BITS_H
 #include <stdint.h>
 
 typedef struct { const uint8_t *d; int n, pos; } Bits;

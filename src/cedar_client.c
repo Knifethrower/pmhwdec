@@ -2,7 +2,7 @@
 /* "cedar" backend, client side: the Allwinner video engine decoder runs in pmhwdec-cedard (cedard.c + cedar.c, GPL,
  * shipped next to libpmhwdec), one helper process per decoder; this file only talks cedar_ipc.h to it. Pictures come
  * back as dma-buf fds, mapped here once per buffer (the helper flushes the CPU caches before it hands one over).
- * A helper that dies or does not answer within CD_TIMEOUT_MS ends the decoder with PMHW_UNSUPPORTED, so the caller
+ * A helper that dies or does not answer within CD_TIMEOUT_MS ends the decoder with PMHWDEC_UNSUPPORTED, so the caller
  * goes on in software. PMHWDEC_CEDARD=<path> picks another helper binary. */
 #define _GNU_SOURCE                     /* dladdr */
 #include <dlfcn.h>
@@ -147,11 +147,11 @@ dead:
 }
 
 /* ---------------- Backend ---------------- */
-static int cc_query(PmhwCodec codec, PmhwCaps *caps)
+static int cc_query(PmhwdecCodec codec, PmhwdecCaps *caps)
 {
-    static int done[PMHW_CODEC_COUNT], ok[PMHW_CODEC_COUNT];
-    static PmhwCaps cached[PMHW_CODEC_COUNT];
-    if (codec != PMHW_CODEC_H264 && codec != PMHW_CODEC_HEVC && codec != PMHW_CODEC_VP8) return -1;
+    static int done[PMHWDEC_CODEC_COUNT], ok[PMHWDEC_CODEC_COUNT];
+    static PmhwdecCaps cached[PMHWDEC_CODEC_COUNT];
+    if (codec != PMHWDEC_CODEC_H264 && codec != PMHWDEC_CODEC_HEVC && codec != PMHWDEC_CODEC_VP8) return -1;
     if (!done[codec]) {
         done[codec] = 1;
         CC c = { 0 };
@@ -160,7 +160,7 @@ static int cc_query(PmhwCodec codec, PmhwCaps *caps)
             CdRep r;
             if (call(&c, &q, NULL, 1, &r, NULL) == 0 && r.status == 0) {
                 ok[codec] = 1;
-                cached[codec] = (PmhwCaps){ r.max_width, r.max_height, r.max_bit_depth, "cedar" };
+                cached[codec] = (PmhwdecCaps){ r.max_width, r.max_height, r.max_bit_depth, "cedar" };
             }
             stop(&c);
         }
@@ -170,14 +170,14 @@ static int cc_query(PmhwCodec codec, PmhwCaps *caps)
     return 0;
 }
 
-static void *cc_open(PmhwCodec codec, int width, int height)
+static void *cc_open(PmhwdecCodec codec, int width, int height)
 {
     CC *c = calloc(1, sizeof *c);
     if (!c) return NULL;
     for (int i = 0; i < MAPS; i++) c->map[i].fd = -1;
     if (start(c)) { free(c); return NULL; }
     CdReq q = { .op = CD_OPEN, .codec = codec, .width = width, .height = height,
-                .max_depth = pmhw_selftest_depth_allowed("cedar", codec, 10) ? 10 : 8 };
+                .max_depth = pmhwdec_selftest_depth_allowed("cedar", codec, 10) ? 10 : 8 };
     CdRep r;
     if (call(c, &q, NULL, 1, &r, NULL) || r.status) { stop(c); free(c); return NULL; }
     return c;
@@ -188,7 +188,7 @@ static int cc_send(void *ctx, const uint8_t *data, int size, int64_t pts)
     CC *c = ctx;
     CdReq q = { .op = CD_SEND, .pts = pts, .len = data && size > 0 ? (uint32_t)size : 0 };
     CdRep r;
-    if (call(c, &q, q.len ? data : NULL, 1, &r, NULL)) return PMHW_UNSUPPORTED;
+    if (call(c, &q, q.len ? data : NULL, 1, &r, NULL)) return PMHWDEC_UNSUPPORTED;
     return r.status;
 }
 
@@ -221,7 +221,7 @@ static int map_of(CC *c, int fd)
     return free_i;
 }
 
-static int cc_get(void *ctx, PmhwPicture *pic)
+static int cc_get(void *ctx, PmhwdecPicture *pic)
 {
     CC *c = ctx;
     CdReq q = { .op = CD_GET };
@@ -242,7 +242,7 @@ static int cc_get(void *ctx, PmhwPicture *pic)
     m->refs++;
     memset(pic, 0, sizeof *pic);
     pic->width = r.width; pic->height = r.height; pic->left = r.left; pic->top = r.top;
-    pic->format = PMHW_FMT_NV12;
+    pic->format = PMHWDEC_FMT_NV12;
     pic->plane[0] = m->p + r.offset0;
     pic->plane[1] = m->p + r.offset1;
     pic->stride[0] = r.stride0; pic->stride[1] = r.stride1;
@@ -256,7 +256,7 @@ static int cc_get(void *ctx, PmhwPicture *pic)
     return 1;
 }
 
-static void cc_put(void *ctx, PmhwPicture *pic)
+static void cc_put(void *ctx, PmhwdecPicture *pic)
 {
     CC *c = ctx;
     intptr_t v = (intptr_t)pic->priv;
@@ -285,6 +285,6 @@ static void cc_close(void *ctx)
     free(c);
 }
 
-const Backend pmhw_cedar_client_backend = {
+const Backend pmhwdec_cedar_client_backend = {
     "cedar", cc_query, cc_open, cc_send, cc_get, cc_put, cc_flush, cc_close,
 };

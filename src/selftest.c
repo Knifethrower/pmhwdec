@@ -59,7 +59,7 @@ static int state(const char *name, int codec, int depth)
 
 static int hung(const char *name) { return state(name, ST_HUNG_CODEC, 0) == ST_FAIL; }
 
-static const struct StClip *clip_for(PmhwCodec codec, int depth)
+static const struct StClip *clip_for(PmhwdecCodec codec, int depth)
 {
     for (size_t i = 0; i < sizeof st_clips / sizeof st_clips[0]; i++)
         if (st_clips[i].codec == (int)codec && st_clips[i].depth == depth) return &st_clips[i];
@@ -131,7 +131,7 @@ typedef struct Job {
     pthread_cond_t cv;
 } Job;
 
-static int check_picture(Job *j, const PmhwPicture *p, int n)
+static int check_picture(Job *j, const PmhwdecPicture *p, int n)
 {
     const struct StClip *c = j->clip;
     if (n >= ST_FRAMES) { snprintf(j->why, sizeof j->why, "more than %d pictures", ST_FRAMES); return -1; }
@@ -173,7 +173,7 @@ static void *run_job(void *arg)
     void *ctx = j->be->open(c->codec, ST_W, ST_H);
     if (!ctx) { snprintf(j->why, sizeof j->why, "open failed"); bad = 1; }
     while (ctx && !bad) {
-        PmhwPicture p;
+        PmhwdecPicture p;
         if (j->be->get(ctx, &p) == 1) {
             if (check_picture(j, &p, n)) bad = 1;
             n++;
@@ -188,14 +188,14 @@ static void *run_job(void *arg)
         }
         int r = sent < c->naus ? j->be->send(ctx, c->data + c->au[sent], (int)(c->au[sent + 1] - c->au[sent]), sent)
                                : j->be->send(ctx, NULL, 0, 0);
-        if (r == PMHW_AGAIN) {
+        if (r == PMHWDEC_AGAIN) {
             if (++spins > 2000) { snprintf(j->why, sizeof j->why, "decoder never takes access unit %d", sent); bad = 1; }
             nanosleep(&ms, NULL);
             continue;
         }
         spins = 0;
-        if (r == PMHW_UNSUPPORTED) { snprintf(j->why, sizeof j->why, "stream refused"); bad = 1; }
-        else if (r == PMHW_ERROR) { snprintf(j->why, sizeof j->why, "access unit %d failed", sent); bad = 1; }
+        if (r == PMHWDEC_UNSUPPORTED) { snprintf(j->why, sizeof j->why, "stream refused"); bad = 1; }
+        else if (r == PMHWDEC_ERROR) { snprintf(j->why, sizeof j->why, "access unit %d failed", sent); bad = 1; }
         sent++;
     }
     if (!bad && n != ST_FRAMES) { snprintf(j->why, sizeof j->why, "%d of %d pictures came out", n, ST_FRAMES); bad = 1; }
@@ -249,7 +249,7 @@ static int run_clip(const Backend *be, const struct StClip *c, int *timed_out)
 }
 
 /* the bit depth this backend may decode for this codec: 0 = none (failed or hung), else up to max_depth */
-int pmhw_selftest(const Backend *be, PmhwCodec codec, int max_depth)
+int pmhwdec_selftest(const Backend *be, PmhwdecCodec codec, int max_depth)
 {
     int mode = env_mode();
     if (!mode) return max_depth;
@@ -282,7 +282,7 @@ int pmhw_selftest(const Backend *be, PmhwCodec codec, int max_depth)
 }
 
 /* for backends that learn a stream's depth only from its headers: may they decode it? (yes while untested) */
-int pmhw_selftest_depth_allowed(const char *backend, PmhwCodec codec, int depth)
+int pmhwdec_selftest_depth_allowed(const char *backend, PmhwdecCodec codec, int depth)
 {
     if (depth <= 8 || !env_mode()) return 1;
     pthread_mutex_lock(&st_lock);
